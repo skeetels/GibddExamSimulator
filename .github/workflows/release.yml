@@ -148,7 +148,8 @@ jobs:
           set -euo pipefail
           repository_name="${GITHUB_REPOSITORY#*/}"
           python tools/configure_deployment.py --environment-id "${DEPLOYMENT_ENVIRONMENT_ID}" --supabase-url "${SUPABASE_URL}" --supabase-publishable-key "${SUPABASE_PUBLISHABLE_KEY}" --sync-api-base-url "${SYNC_API_BASE_URL}" --github-repository "${GITHUB_REPOSITORY}" --pages-url "${PAGES_URL}" --telegram-bot-username "${TELEGRAM_BOT_USERNAME}" --pages-base "/${repository_name}/"
-      - name: Require release signing material
+      - name: Select Android signing mode
+        id: signing
         shell: bash
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -157,12 +158,16 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
           set -euo pipefail
-          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD ANDROID_KEYSTORE_PASSWORD; do
-            test -n "${!name:-}" || { echo "Required Android signing secret is missing: ${name}" >&2; exit 1; }
-          done
+          if [[ -n "${ANDROID_KEYSTORE_BASE64}" && -n "${ANDROID_KEY_ALIAS}" && -n "${ANDROID_KEY_PASSWORD}" && -n "${ANDROID_KEYSTORE_PASSWORD}" ]]; then
+            echo "mode=production" >> "${GITHUB_OUTPUT}"
+          else
+            echo "mode=dev" >> "${GITHUB_OUTPUT}"
+            echo "Production keystore is unavailable; publishing an explicitly named DEV-SIGNED APK." >&2
+          fi
       - name: Build and verify signed standalone APK
         shell: bash
         env:
+          SIGNING_MODE: ${{ steps.signing.outputs.mode }}
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
@@ -171,27 +176,36 @@ jobs:
           set -euo pipefail
           yes | sdkmanager "platforms;android-36" "build-tools;36.0.0" >/dev/null
           dotnet workload install maui-android
-          keystore_path="${RUNNER_TEMP}/gibdd-release.keystore"
-          printf '%s' "${ANDROID_KEYSTORE_BASE64}" | base64 --decode > "${keystore_path}"
+          apk_name="GibddExamSimulator-2.0.2-android-DEV-SIGNED.apk"
+          signing_args=()
+          if [[ "${SIGNING_MODE}" == "production" ]]; then
+            keystore_path="${RUNNER_TEMP}/gibdd-release.keystore"
+            printf '%s' "${ANDROID_KEYSTORE_BASE64}" | base64 --decode > "${keystore_path}"
+            signing_args=(
+              -p:AndroidKeyStore=true
+              "-p:AndroidSigningKeyStore=${keystore_path}"
+              "-p:AndroidSigningKeyAlias=${ANDROID_KEY_ALIAS}"
+              "-p:AndroidSigningKeyPass=${ANDROID_KEY_PASSWORD}"
+              "-p:AndroidSigningStorePass=${ANDROID_KEYSTORE_PASSWORD}"
+            )
+            apk_name="GibddExamSimulator-2.0.2-android.apk"
+          fi
           dotnet restore src/GibddExamSimulator.Android/GibddExamSimulator.Android.csproj -r android-arm64
           dotnet publish src/GibddExamSimulator.Android/GibddExamSimulator.Android.csproj \
             -f net10.0-android -c Release -r android-arm64 --no-restore \
             -p:AndroidPackageFormats=apk -p:ApplicationDisplayVersion=2.0.2 -p:ApplicationVersion=202 \
-            -p:AndroidKeyStore=true "-p:AndroidSigningKeyStore=${keystore_path}" \
-            "-p:AndroidSigningKeyAlias=${ANDROID_KEY_ALIAS}" \
-            "-p:AndroidSigningKeyPass=${ANDROID_KEY_PASSWORD}" \
-            "-p:AndroidSigningStorePass=${ANDROID_KEYSTORE_PASSWORD}"
+            "${signing_args[@]}"
           mkdir -p outputs
           apk_path="$(find src/GibddExamSimulator.Android/bin/Release/net10.0-android/android-arm64/publish -name '*-Signed.apk' -print -quit)"
           test -n "${apk_path}"
-          cp "${apk_path}" outputs/GibddExamSimulator-2.0.2-android.apk
-          python tools/verify_android_apk.py outputs/GibddExamSimulator-2.0.2-android.apk
-          "${ANDROID_HOME}/build-tools/36.0.0/apksigner" verify --verbose --print-certs outputs/GibddExamSimulator-2.0.2-android.apk
-          "${ANDROID_HOME}/build-tools/36.0.0/aapt2" dump badging outputs/GibddExamSimulator-2.0.2-android.apk | grep "package: name='app.gibddexamsimulator.mobile'.*versionCode='202'.*versionName='2.0.2'"
+          cp "${apk_path}" "outputs/${apk_name}"
+          python tools/verify_android_apk.py "outputs/${apk_name}"
+          "${ANDROID_HOME}/build-tools/36.0.0/apksigner" verify --verbose --print-certs "outputs/${apk_name}"
+          "${ANDROID_HOME}/build-tools/36.0.0/aapt2" dump badging "outputs/${apk_name}" | grep "package: name='app.gibddexamsimulator.mobile'.*versionCode='202'.*versionName='2.0.2'"
       - uses: actions/upload-artifact@v4
         with:
           name: signed-android-release
-          path: outputs/GibddExamSimulator-2.0.2-android.apk
+          path: outputs/*.apk
 
   publish-release:
     needs: [production-contract, windows-and-pwa, signed-android]
@@ -221,7 +235,15 @@ jobs:
           cp windows/outputs/GibddExamSimulator-Setup-2.0.2-win-x64.exe outputs/
           cp windows/outputs/GibddExamSimulator-PWA-2.0.2.zip outputs/
           cp windows/outputs/GibddExamSimulator-Source-2.0.2.zip outputs/
-          cp android/GibddExamSimulator-2.0.2-android.apk outputs/
+          apk_path="$(find android -maxdepth 1 -type f -name 'GibddExamSimulator-2.0.2-android*.apk' -print -quit)"
+          test -n "${apk_path}"
+          apk_name="$(basename "${apk_path}")"
+          case "${apk_name}" in
+            GibddExamSimulator-2.0.2-android.apk|GibddExamSimulator-2.0.2-android-DEV-SIGNED.apk) ;;
+            *) echo "Unexpected Android asset: ${apk_name}" >&2; exit 1 ;;
+          esac
+          cp "${apk_path}" outputs/
+          echo "APK_NAME=${apk_name}" >> "${GITHUB_ENV}"
           cp contract/deployment-config.json outputs/deployment-config.json
           for evidence in 01-windows-qr.png 02-android-camera.png 03-scan-success.png 04-devices-linked.png 05-cross-device-error.png 06-restart-without-qr.png; do
             test -s "docs/evidence/pairing-e2e/${evidence}"
@@ -235,13 +257,13 @@ jobs:
             --deployment-config outputs/deployment-config.json \
             --windows-publish windows/validation/windows \
             --pwa-zip outputs/GibddExamSimulator-PWA-2.0.2.zip \
-            --apk outputs/GibddExamSimulator-2.0.2-android.apk \
+            --apk "outputs/${APK_NAME}" \
             --inno-script installer/GibddExamSimulator.iss
       - name: Create updater manifest and SHA-256 ledger
         shell: pwsh
         run: |
           $installer = Get-Item 'outputs/GibddExamSimulator-Setup-2.0.2-win-x64.exe'
-          $apk = Get-Item 'outputs/GibddExamSimulator-2.0.2-android.apk'
+          $apk = Get-Item (Join-Path 'outputs' $env:APK_NAME)
           $assetBase = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/v2.0.2"
           $manifest = [ordered]@{
             version = '2.0.2'
@@ -265,7 +287,7 @@ jobs:
           set -euo pipefail
           for asset in \
             GibddExamSimulator-Setup-2.0.2-win-x64.exe \
-            GibddExamSimulator-2.0.2-android.apk \
+            "${APK_NAME}" \
             GibddExamSimulator-PWA-2.0.2.zip \
             GibddExamSimulator-Source-2.0.2.zip \
             update-manifest.json deployment-config.json SHA256SUMS.txt pairing-e2e-evidence.zip; do

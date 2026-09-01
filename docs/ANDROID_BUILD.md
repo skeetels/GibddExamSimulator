@@ -19,7 +19,7 @@ dotnet publish .\src\GibddExamSimulator.Android\GibddExamSimulator.Android.cspro
 
 ## Production подпись
 
-Release workflow не имеет dev-signed fallback. Он завершается ошибкой, если отсутствует любой из `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEY_ALIAS`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_PASSWORD`. Keystore декодируется только в `RUNNER_TEMP`, не попадает в artifact и должен оставаться одинаковым для будущих обновлений.
+При наличии `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEY_ALIAS`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_PASSWORD` Release создаёт `GibddExamSimulator-2.0.2-android.apk` с постоянной подписью. Если production keystore ещё не предоставлен, Release создаёт явно помеченный fallback `GibddExamSimulator-2.0.2-android-DEV-SIGNED.apk`. Keystore декодируется только в `RUNNER_TEMP`, не попадает в artifact и должен оставаться одинаковым для будущих обновлений.
 
 Проверки:
 
