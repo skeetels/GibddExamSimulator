@@ -33,7 +33,14 @@ else
         <button class="primary wide" disabled="@busy" @onclick="StartExamAsync">Начать экзамен</button>
     </section>
 
-    @if (State.SavedDraft is not null)
+    @if (State.ActiveSession is { IsCompleted: false })
+    {
+        <section class="resume-card">
+            <div><strong>Текущая сессия сохранена</strong><span>@State.ActiveSession.StageCaption · вопрос @(State.ActiveSession.CurrentIndex + 1)</span></div>
+            <button class="secondary" @onclick="ResumeActive">Вернуться</button>
+        </section>
+    }
+    else if (State.SavedDraft is not null)
     {
         <section class="resume-card">
             <div><strong>Незавершённая сессия</strong><span>@DraftCaption(State.SavedDraft)</span></div>
@@ -52,18 +59,44 @@ else
 
     <section class="section-card">
         <div class="section-heading"><div><span class="eyebrow">ОФЛАЙН</span><h2>Вопросы без сети</h2></div><span class="pill">@State.OfflineImageCount / 548 фото</span></div>
-        <p>Тексты и оболочка доступны офлайн всегда. Фотографии подгружаются по мере использования или одним пакетом @State.OfflinePackageSizeCaption.</p>
-        @if (State.IsOfflineDownloadRunning)
+        @if (State.ImagesAreBundled)
+        {
+            <p>Все 800 вопросов и 548 JPEG-изображений уже находятся внутри APK и доступны без сети.</p>
+        }
+        else
+        {
+            <p>Тексты и оболочка доступны офлайн всегда. Фотографии подгружаются по мере использования или одним пакетом @State.OfflinePackageSizeCaption.</p>
+        }
+        @if (!State.ImagesAreBundled && State.IsOfflineDownloadRunning)
         {
             <progress value="@State.OfflineCompleted" max="@Math.Max(1, State.OfflineTotal)"></progress>
             <small>@State.OfflineCompleted из @State.OfflineTotal</small>
             <button class="text-button danger wide" @onclick="State.CancelOfflinePackageDownloadAsync">Отменить загрузку</button>
         }
-        else
+        else if (!State.ImagesAreBundled)
         {
             <button class="secondary wide" @onclick="State.DownloadOfflinePackageAsync">Скачать все изображения</button>
         }
     </section>
+
+    @if (State.SupportsInstallableUpdates)
+    {
+        <section class="section-card">
+            <div><span class="eyebrow">ОБНОВЛЕНИЯ</span><h2>Android APK</h2></div>
+            <p>Приложение проверяет опубликованные GitHub Releases. Установка начинается только после вашего подтверждения в Android.</p>
+            @if (!string.IsNullOrWhiteSpace(State.UpdateStatus))
+            {
+                <p class="status-note">@State.UpdateStatus</p>
+            }
+            <div class="button-row">
+                <button class="secondary" @onclick="State.CheckForUpdatesAsync">Проверить</button>
+                @if (State.HasInstallableUpdate)
+                {
+                    <button class="primary" @onclick="State.OpenAvailableUpdateAsync">Скачать APK</button>
+                }
+            </div>
+        </section>
+    }
 
     @if (!string.IsNullOrWhiteSpace(localError))
     {
@@ -109,6 +142,8 @@ else
         if (await State.ResumeDraftAsync())
             Navigation.NavigateTo("/session");
     }
+
+    private void ResumeActive() => Navigation.NavigateTo("/session");
 
     private void GoToLogin() => Navigation.NavigateTo("/login");
 

@@ -24,3 +24,6 @@ double_confirm_changes = true
 
 [functions.telegram-report]
 verify_jwt = true
+
+[functions.telegram-bot]
+verify_jwt = false

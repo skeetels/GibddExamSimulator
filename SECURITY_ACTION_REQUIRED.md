@@ -1,14 +1,24 @@
-# Требуется действие владельца до публикации
+# Обязательные действия владельца до публикации
 
-В исходной версии 1.2.0 секрет Telegram-бота находился непосредственно в клиентском коде. В версии 2.0.0 файл с секретом и весь производственный Telegram-контур удалены, однако старый ключ следует считать скомпрометированным.
+Ранее Telegram bot token был передан в переписке и поэтому считается скомпрометированным. Версия 2.0.1 не содержит его, но отзыв старого значения обязателен.
 
-До первой публикации репозитория владелец обязан:
+1. В BotFather отзовите старый token и выпустите новый.
+2. Сохраните новый только как Supabase secret TELEGRAM_BOT_TOKEN.
+3. Создайте независимый случайный TELEGRAM_WEBHOOK_SECRET и зарегистрируйте webhook по NETWORK_SETUP.md.
+4. Не публикуйте исходные архивы старых версий, где мог присутствовать token.
+5. Включите GitHub Secret Scanning и Push Protection.
 
-1. Открыть BotFather в Telegram.
-2. Отозвать старый token и при необходимости выпустить новый.
-3. Не переносить старый или новый token в этот репозиторий, установщик, PWA, GitHub Variables либо клиентские настройки.
-4. Включить GitHub Secret Scanning и Push Protection в настройках нового репозитория.
+Client settings могут содержать только Supabase URL, publishable key, public GitHub repository и Pages base path. В клиентские файлы запрещены service-role key, bot token, chat id, GitHub PAT, Android keystore и signing passwords.
 
-Архив версии 1.2.0 не содержит каталога `.git`, поэтому версия 2.0.0 формируется как новый чистый репозиторий без переноса старой Git-истории. Старые исходные архивы нельзя публиковать.
+Telegram Edge Functions принимают только фиксированный private username @skeetels, получают фактический chat id через подписанный webhook /start, проверяют пользовательский JWT для отчёта и используют идемпотентный delivery ledger. Ошибка Telegram не меняет локальный результат.
 
-Клиенты 2.0.0 не содержат Telegram token, Chat ID и не обращаются к Telegram Bot API. По более позднему требованию владельца автоматические отчёты реализованы только в Supabase Edge Function: клиент с пользовательским JWT просит сервер обработать уже сохранённый экзамен, а новый token хранится исключительно как Supabase secret `TELEGRAM_BOT_TOKEN`. Для облачного доступа клиентам разрешены только публичный Supabase URL и publishable key при обязательной защите данных Row Level Security.
+Для Android production updates создайте постоянный keystore и храните его только в защищённой резервной копии и GitHub Secrets. Если secrets не настроены, выдаётся явно помеченный DEV-SIGNED APK; он не совместим по подписи с будущим production APK.
+
+Перед выпуском выполните:
+
+~~~powershell
+python .\tools\scan_for_secrets.py
+python .\tools\build_ab_question_bank.py --validate-only
+~~~
+
+Также проверьте готовые EXE/APK/ZIP, SHA256SUMS.txt и логи Actions. Не выводите старый или новый token в отчётах.

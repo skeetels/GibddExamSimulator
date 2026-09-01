@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>GibddExamSimulator.Mobile.Shared</RootNamespace>
+    <AddRazorSupportForMvc>true</AddRazorSupportForMvc>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.Web" Version="10.0.7" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\GibddExamSimulator.Core\GibddExamSimulator.Core.csproj" />
+    <ProjectReference Include="..\GibddExamSimulator.Application\GibddExamSimulator.Application.csproj" />
+    <ProjectReference Include="..\GibddExamSimulator.Sync\GibddExamSimulator.Sync.csproj" />
+  </ItemGroup>
+</Project>

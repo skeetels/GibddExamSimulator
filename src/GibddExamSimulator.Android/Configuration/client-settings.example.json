@@ -1,0 +1,5 @@
+{
+  "supabaseUrl": "https://PROJECT.supabase.co",
+  "supabasePublishableKey": "PUBLIC_PUBLISHABLE_KEY",
+  "gitHubRepository": "OWNER/REPOSITORY"
+}

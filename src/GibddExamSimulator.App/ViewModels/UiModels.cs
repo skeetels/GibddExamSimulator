@@ -35,9 +35,23 @@ public sealed class AnswerChoiceItem : ObservableObject
 
     public required int Number { get; init; }
     public required string Text { get; init; }
+    public string DisplayText => $"{Number}. {Text}";
     public Brush Background { get => _background; set => SetProperty(ref _background, value); }
     public Brush Border { get => _border; set => SetProperty(ref _border, value); }
     public bool IsEnabled { get => _isEnabled; set => SetProperty(ref _isEnabled, value); }
+}
+
+public sealed class ExamQuestionPreviewItem
+{
+    public required int Index { get; init; }
+    public required int Number { get; init; }
+    public required string QuestionText { get; init; }
+    public ImageSource? Image { get; init; }
+    public bool HasImage => Image is not null;
+    public required string ProgressText { get; init; }
+    public required Brush ProgressBrush { get; init; }
+    public required Brush Background { get; init; }
+    public required Brush Border { get; init; }
 }
 
 public sealed record ReviewErrorItem(

@@ -1,6 +1,6 @@
 using GibddExamSimulator.Application.StudySessions;
 using GibddExamSimulator.Models;
-using GibddExamSimulator.Web.Services;
+using GibddExamSimulator.Mobile.Shared.Services;
 
 namespace GibddExamSimulator.Web.Tests;
 
@@ -17,6 +17,8 @@ public sealed class MobileSessionControllerTests
 
         Assert.True(controller.SelectAnswer(1));
         Assert.True(controller.ConfirmAnswer());
+        Assert.True(controller.HasTrainingFeedback);
+        Assert.True(controller.ContinueTraining());
         Assert.True(controller.SelectAnswer(1));
         Assert.True(controller.ConfirmAnswer());
 
@@ -40,6 +42,9 @@ public sealed class MobileSessionControllerTests
         var restored = MobileSessionController.Restore(device, draft, questions.ToDictionary(question => question.Id));
 
         Assert.Single(restored.ActiveStates, state => state.ConfirmedAnswer.HasValue);
+        Assert.Equal(0, restored.CurrentIndex);
+        Assert.True(restored.HasTrainingFeedback);
+        Assert.True(restored.ContinueTraining());
         Assert.Equal(1, restored.CurrentIndex);
         Assert.Equal(StudyMode.WeakTopics, restored.Mode);
     }

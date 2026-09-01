@@ -1,9 +1,13 @@
 [CmdletBinding()]
 param(
-    [string] $Version = '2.0.0',
+    [string] $Version = '2.0.1',
     [Parameter(Mandatory)]
     [string] $PwaWwwRoot,
-    [string] $OutputDirectory
+    [string] $OutputDirectory,
+    [string] $AndroidApk,
+    [switch] $AndroidDevSigned,
+    [string] $UpdateManifest,
+    [string] $VisualComparison
 )
 
 Set-StrictMode -Version Latest
@@ -16,6 +20,13 @@ if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
 }
 $OutputDirectory = [IO.Path]::GetFullPath($OutputDirectory)
 $PwaWwwRoot = [IO.Path]::GetFullPath($PwaWwwRoot)
+
+foreach ($optionalInput in @($AndroidApk, $UpdateManifest, $VisualComparison)) {
+    if (-not [string]::IsNullOrWhiteSpace($optionalInput) -and
+        -not (Test-Path -LiteralPath $optionalInput -PathType Leaf)) {
+        throw "Optional release artifact was not found: $optionalInput"
+    }
+}
 
 if (-not (Test-Path -LiteralPath $PwaWwwRoot -PathType Container)) {
     throw "Published PWA wwwroot was not found: $PwaWwwRoot"
@@ -47,9 +58,10 @@ try {
         $files = Get-ChildItem -LiteralPath $projectRoot -Recurse -File -Force | Where-Object {
             $relative = [IO.Path]::GetRelativePath($projectRoot, $_.FullName).Replace('\', '/')
             $segments = $relative.Split('/')
-            -not ($segments | Where-Object { $_ -in @('.git', '.vs', 'bin', 'obj', 'artifacts', 'publish') }) -and
+            -not ($segments | Where-Object { $_ -in @('.git', '.vs', 'bin', 'obj', 'artifacts', 'publish', '__pycache__') }) -and
             -not $relative.EndsWith('.user', [StringComparison]::OrdinalIgnoreCase) -and
-            -not $relative.EndsWith('.suo', [StringComparison]::OrdinalIgnoreCase)
+            -not $relative.EndsWith('.suo', [StringComparison]::OrdinalIgnoreCase) -and
+            -not $relative.EndsWith('.pyc', [StringComparison]::OrdinalIgnoreCase)
         }
         foreach ($file in $files) {
             $relative = [IO.Path]::GetRelativePath($projectRoot, $file.FullName).Replace('\', '/')
@@ -73,15 +85,50 @@ Copy-Item -LiteralPath (Join-Path $projectRoot 'README.md') -Destination (Join-P
 Copy-Item -LiteralPath (Join-Path $projectRoot 'NETWORK_SETUP.md') -Destination (Join-Path $OutputDirectory "NETWORK_SETUP-$Version.md")
 Copy-Item -LiteralPath (Join-Path $projectRoot 'assets\branding\app-icon-1024.png') -Destination (Join-Path $OutputDirectory "GibddExamSimulator-Logo-$Version.png")
 
+if (-not [string]::IsNullOrWhiteSpace($AndroidApk)) {
+    $apkName = if ($AndroidDevSigned -or
+        [IO.Path]::GetFileName($AndroidApk).Contains('DEV-SIGNED', [StringComparison]::OrdinalIgnoreCase)) {
+        "GibddExamSimulator-$Version-android-DEV-SIGNED.apk"
+    }
+    else {
+        "GibddExamSimulator-$Version-android.apk"
+    }
+    $apkDestination = Join-Path $OutputDirectory $apkName
+    if ([IO.Path]::GetFullPath($AndroidApk) -ne [IO.Path]::GetFullPath($apkDestination)) {
+        Copy-Item -LiteralPath $AndroidApk -Destination $apkDestination
+    }
+}
+
+if (-not [string]::IsNullOrWhiteSpace($UpdateManifest)) {
+    $manifestDestination = Join-Path $OutputDirectory 'update-manifest.json'
+    if ([IO.Path]::GetFullPath($UpdateManifest) -ne [IO.Path]::GetFullPath($manifestDestination)) {
+        Copy-Item -LiteralPath $UpdateManifest -Destination $manifestDestination
+    }
+}
+
+if (-not [string]::IsNullOrWhiteSpace($VisualComparison)) {
+    $visualDestination = Join-Path $OutputDirectory 'visual-comparison.zip'
+    if ([IO.Path]::GetFullPath($VisualComparison) -ne [IO.Path]::GetFullPath($visualDestination)) {
+        Copy-Item -LiteralPath $VisualComparison -Destination $visualDestination
+    }
+}
+
 $artifacts = Get-ChildItem -LiteralPath $OutputDirectory -File | Where-Object {
     $_.Name -in @(
         "GibddExamSimulator-Setup-$Version-win-x64.exe",
         "GibddExamSimulator-PWA-$Version.zip",
         "GibddExamSimulator-Source-$Version.zip",
-        "GibddExamSimulator-Logo-$Version.png")
+        "GibddExamSimulator-Logo-$Version.png",
+        "GibddExamSimulator-$Version-android.apk",
+        "GibddExamSimulator-$Version-android-DEV-SIGNED.apk",
+        'update-manifest.json',
+        'visual-comparison.zip')
 } | Sort-Object Name
 
-$checksumPath = Join-Path $OutputDirectory "SHA256SUMS-$Version.txt"
+$checksumPath = Join-Path $OutputDirectory 'SHA256SUMS.txt'
+if (Test-Path -LiteralPath $checksumPath) {
+    throw "Release artifact already exists; remove or archive it explicitly before rebuilding: $checksumPath"
+}
 $checksumLines = foreach ($artifact in $artifacts) {
     $hash = (Get-FileHash -LiteralPath $artifact.FullName -Algorithm SHA256).Hash
     "$hash  $($artifact.Name)"

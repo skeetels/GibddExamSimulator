@@ -21,6 +21,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\GibddExamSimulator.Core\GibddExamSimulator.Core.csproj" />
     <ProjectReference Include="..\..\src\GibddExamSimulator.Application\GibddExamSimulator.Application.csproj" />
+    <ProjectReference Include="..\..\src\GibddExamSimulator.Mobile.Shared\GibddExamSimulator.Mobile.Shared.csproj" />
     <ProjectReference Include="..\..\src\GibddExamSimulator.Web\GibddExamSimulator.Web.csproj" />
   </ItemGroup>
 

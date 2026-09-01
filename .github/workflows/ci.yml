@@ -51,12 +51,18 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.9.6
-      - working-directory: supabase/functions/telegram-report
+      - name: Check Telegram Edge Functions
+        shell: bash
         run: |
-          deno fmt --check
-          deno lint
-          deno check index.ts index.test.ts
-          deno test
+          set -euo pipefail
+          for function_name in telegram-report telegram-bot; do
+            pushd "supabase/functions/${function_name}"
+            deno fmt --check index.ts index.test.ts
+            deno lint index.ts index.test.ts
+            deno check index.ts index.test.ts
+            deno test index.test.ts
+            popd
+          done
 
   rls:
     runs-on: ubuntu-latest
@@ -82,5 +88,43 @@ jobs:
           global-json-file: global.json
           cache: true
           cache-dependency-path: '**/*.csproj'
-      - run: dotnet restore GibddExamSimulator.sln
-      - run: dotnet build GibddExamSimulator.sln -c Release --no-restore -warnaserror
+      - name: Restore Windows project
+        run: dotnet restore src/GibddExamSimulator.App/GibddExamSimulator.App.csproj
+      - name: Build Windows application
+        run: dotnet build src/GibddExamSimulator.App/GibddExamSimulator.App.csproj -c Release --no-restore -warnaserror
+
+  android-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android build dependencies
+        shell: bash
+        run: |
+          yes | sdkmanager "platforms;android-36" "build-tools;36.0.0" >/dev/null
+          dotnet workload install maui-android
+      - name: Publish standalone ARM64 APK
+        shell: bash
+        run: |
+          dotnet restore src/GibddExamSimulator.Android/GibddExamSimulator.Android.csproj -r android-arm64
+          dotnet publish src/GibddExamSimulator.Android/GibddExamSimulator.Android.csproj \
+            -f net10.0-android -c Release -r android-arm64 --no-restore \
+            -p:AndroidPackageFormats=apk
+          mkdir -p artifacts/android
+          apk_path="$(find src/GibddExamSimulator.Android/bin/Release/net10.0-android/android-arm64/publish -name '*-Signed.apk' -print -quit)"
+          test -n "${apk_path}"
+          cp "${apk_path}" artifacts/android/GibddExamSimulator-android-arm64-DEV-SIGNED.apk
+          python3 tools/verify_android_apk.py artifacts/android/GibddExamSimulator-android-arm64-DEV-SIGNED.apk
+          "${ANDROID_HOME}/build-tools/36.0.0/apksigner" verify --verbose artifacts/android/GibddExamSimulator-android-arm64-DEV-SIGNED.apk
+          "${ANDROID_HOME}/build-tools/36.0.0/aapt2" dump badging artifacts/android/GibddExamSimulator-android-arm64-DEV-SIGNED.apk | grep "package: name='app.gibddexamsimulator.mobile'"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-arm64-dev-signed
+          path: artifacts/android/*.apk

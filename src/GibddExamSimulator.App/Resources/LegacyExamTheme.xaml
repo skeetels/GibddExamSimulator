@@ -1,0 +1,48 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <SolidColorBrush x:Key="LegacyServiceBlue" Color="#FF125A9C" />
+  <SolidColorBrush x:Key="LegacyServiceLightBlue" Color="#FFDDEAF6" />
+  <SolidColorBrush x:Key="LegacyServiceGray" Color="#FFE6E6E6" />
+  <SolidColorBrush x:Key="LegacyLineGray" Color="#FF9A9A9A" />
+  <SolidColorBrush x:Key="LegacySuccessGreen" Color="#FF0C7A2A" />
+  <SolidColorBrush x:Key="LegacyFailureRed" Color="#FFB00020" />
+
+  <Style TargetType="Button">
+    <Setter Property="Background" Value="#FFF2F2F2" />
+    <Setter Property="Foreground" Value="Black" />
+    <Setter Property="BorderBrush" Value="#FF707070" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="Padding" Value="12,7" />
+    <Setter Property="MinHeight" Value="38" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Border x:Name="Border"
+                  Background="{TemplateBinding Background}"
+                  BorderBrush="{TemplateBinding BorderBrush}"
+                  BorderThickness="{TemplateBinding BorderThickness}"
+                  Padding="{TemplateBinding Padding}">
+            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter TargetName="Border" Property="Background" Value="#FFE1EAF2" />
+              <Setter TargetName="Border" Property="BorderBrush" Value="#FF125A9C" />
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+              <Setter TargetName="Border" Property="Background" Value="#FFC8D8E8" />
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+              <Setter TargetName="Border" Property="Background" Value="#FFE7E7E7" />
+              <Setter Property="Foreground" Value="#FF888888" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+</ResourceDictionary>

@@ -4,6 +4,7 @@
 @inject NavigationManager Navigation
 
 <PageTitle>Сессия — Билеты ГИБДД</PageTitle>
+<NavigationLock OnBeforeInternalNavigation="ConfirmNavigationAsync" />
 
 @if (State.ActiveSession is null)
 {
@@ -76,7 +77,9 @@ else if (Current is not null)
             <h1>@Current.Question.QuestionText</h1>
             @if (!string.IsNullOrWhiteSpace(Current.Question.ImagePath))
             {
-                <img class="question-image" src="@($"question-bank/ab/{Current.Question.ImagePath}")" alt="Иллюстрация к вопросу" />
+                <button class="question-image-button" aria-label="Увеличить изображение" @onclick="ToggleImageZoom">
+                    <img class="question-image" src="@($"question-bank/ab/{Current.Question.ImagePath}")" alt="Иллюстрация к вопросу" />
+                </button>
             }
         </article>
 
@@ -93,12 +96,51 @@ else if (Current is not null)
         <button class="primary wide confirm" disabled="@(!Current.PendingAnswer.HasValue || Current.ConfirmedAnswer.HasValue)" @onclick="State.ConfirmAnswerAsync">
             Подтвердить ответ
         </button>
+
+        @if (State.ActiveSession.HasTrainingFeedback)
+        {
+            var correct = Current.ConfirmedAnswer == Current.Question.CorrectAnswer;
+            <section class="training-feedback @(correct ? "correct" : "incorrect")">
+                <strong>@(correct ? "Верно" : "Неверно")</strong>
+                @if (!correct)
+                {
+                    <p>Правильный ответ: @Current.Question.CorrectAnswer. @Current.Question.Answers[Current.Question.CorrectAnswer - 1]</p>
+                }
+                <p>@Current.Question.Explanation</p>
+                <button class="primary wide" @onclick="State.ContinueTrainingAsync">Следующий вопрос</button>
+            </section>
+        }
     </section>
+
+    @if (imageZoomed && !string.IsNullOrWhiteSpace(Current.Question.ImagePath))
+    {
+        <button class="image-lightbox" aria-label="Закрыть увеличенное изображение" @onclick="ToggleImageZoom">
+            <img src="@($"question-bank/ab/{Current.Question.ImagePath}")" alt="Увеличенная иллюстрация к вопросу" />
+        </button>
+    }
+}
+
+@if (leaveConfirmationVisible)
+{
+    <div class="leave-confirmation-backdrop" role="presentation">
+        <section class="leave-confirmation" role="dialog" aria-modal="true" aria-labelledby="leave-session-title">
+            <h2 id="leave-session-title">Выйти из сессии?</h2>
+            <p>Прогресс сохранён. Вы сможете продолжить с этого вопроса позже.</p>
+            <div>
+                <button type="button" @onclick="CancelLeave">Остаться</button>
+                <button type="button" class="danger" @onclick="ApproveLeave">Выйти</button>
+            </div>
+        </section>
+    </div>
 }
 
 @code {
     private readonly CancellationTokenSource timerCancellation = new();
     private PeriodicTimer? timer;
+    private bool imageZoomed;
+    private bool navigationApproved;
+    private bool leaveConfirmationVisible;
+    private string? pendingNavigationTarget;
     private ExamQuestionState? Current => State.ActiveSession?.CurrentState;
 
     protected override void OnInitialized()
@@ -137,6 +179,33 @@ else if (Current is not null)
     private string AnswerClass(int answer) => Current?.PendingAnswer == answer ? "selected" : string.Empty;
 
     private void GoHome() => Navigation.NavigateTo("/");
+
+    private Task ConfirmNavigationAsync(LocationChangingContext context)
+    {
+        if (navigationApproved || State.ActiveSession is null || State.ActiveSession.IsCompleted)
+            return Task.CompletedTask;
+
+        context.PreventNavigation();
+        pendingNavigationTarget = context.TargetLocation;
+        leaveConfirmationVisible = true;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private void CancelLeave()
+    {
+        pendingNavigationTarget = null;
+        leaveConfirmationVisible = false;
+    }
+
+    private void ApproveLeave()
+    {
+        var target = pendingNavigationTarget ?? "/";
+        navigationApproved = true;
+        leaveConfirmationVisible = false;
+        Navigation.NavigateTo(target);
+    }
+
+    private void ToggleImageZoom() => imageZoomed = !imageZoomed;
 
     private static string Duration(long milliseconds)
     {

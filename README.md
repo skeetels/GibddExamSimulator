@@ -1,87 +1,90 @@
-# Билеты ГИБДД AB — версия 2.0.0
+# GIBDD Exam Simulator 2.0.1
 
-Готовый монорепозиторий двух клиентов одного учебного профиля:
+Неофициальный тренажёр теоретического экзамена ГИБДД с общей историей на трёх клиентах:
 
-- полноэкранное Windows-приложение WPF для экзамена;
-- адаптивная Blazor WebAssembly PWA для телефона, планшета и ПК.
+- Windows WPF — отдельный полноэкранный экзаменационный терминал в компоновке версии 1.2.0;
+- Android 8.0+ — настоящий устанавливаемый .NET MAUI Blazor Hybrid APK;
+- адаптивная Blazor WebAssembly PWA — браузер, iPhone, Android и ПК.
 
-Это неофициальный учебный тренажёр. Он не является программой МВД России или Госавтоинспекции и не использует их логотипы.
+Проект не является программой МВД России или Госавтоинспекции и не использует их логотипы.
 
-## Возможности
+## Что входит в 2.0.1
 
-- ровно 800 вопросов A/B/M: 40 билетов × 20 вопросов, 160 тематических блоков и 548 настоящих JPEG;
-- строгая проверка состава и SHA-256 банка при запуске и в CI;
-- экзамен 20 вопросов / 20 минут, дополнительные 5 или 10 вопросов и официально-подобные правила ошибок;
-- отдельное подтверждение ответа, неизменность подтверждённого ответа и монотонный таймер;
-- все 20 номеров вопросов одновременно видны на экране и доступны в произвольном порядке;
-- Windows-клиент открывается в borderless fullscreen и адаптируется к текущему разрешению, без фиксации 4:3;
-- мобильные режимы: экзамен, «Умные 10», работа над ошибками, слабые темы, билет, марафон и «Без ошибок»;
-- анализ прошлых ошибок и медленных ответов по вопросам, билетам и тематическим блокам;
-- локальное offline-first хранение: SQLite на Windows и IndexedDB в PWA;
-- append-only синхронизация завершённых сессий через Supabase с RLS, курсором и идемпотентным outbox;
-- черновик активной мобильной сессии и ленивый кэш изображений;
-- полный офлайн-пакет изображений с оценкой свободного места, прогрессом, отменой и очисткой;
-- автоматический Telegram-отчёт после каждого завершённого экзамена только владельцу `@skeetels`;
-- источник отчёта отмечается как `ПК · A1B2C3` либо `Телефон / PWA · A1B2C3`, где код — первые шесть символов случайного ID установки;
-- обновления Windows через GitHub Releases с обязательной проверкой SHA-256 и подтверждением перед запуском установщика;
-- обновление PWA через service worker и ненавязчивую плашку «Доступна новая версия».
+- ровно 800 вопросов A/B/M: 40 билетов × 20 вопросов, 160 тематических блоков и 548 JPEG;
+- отсутствие категорий C/D и WebP в исходном и собранном банке;
+- экзамен 20 вопросов / 20 минут с дополнительными 5 или 10 вопросами по ошибкам;
+- на Windows сначала виден плоский перечень всех 20 вопросов в пяти строках, затем можно открыть любой вопрос;
+- выбор ответа не подтверждает его автоматически, а правильность скрыта до результата;
+- умные тренировки учитывают прошлые ошибки, сложные билеты, тематические блоки и время ответа;
+- локальная offline-first история, восстановление незавершённой сессии и идемпотентный outbox;
+- единая облачная история Windows, Android и PWA через Supabase с RLS;
+- автоматический Telegram-отчёт после завершённого экзамена только владельцу @skeetels;
+- пометка источника отчёта: ПК, Телефон / APK или Телефон / PWA плюс короткий анонимный код установки;
+- обновления Windows с SHA-256, Android через APK последнего GitHub Release и PWA через service worker.
 
-В облако и Telegram не передаются ФИО, имя компьютера, модель телефона, Windows username, пароли или аппаратный fingerprint. Клиенты не содержат Telegram token и не обращаются к Bot API напрямую.
+Клиенты не содержат Telegram bot token, service-role key, GitHub PAT, signing password, ФИО владельца компьютера, имя устройства или аппаратный fingerprint.
 
-## Установка Windows
+## Готовые форматы
 
-Запустите `GibddExamSimulator-Setup-2.0.0-win-x64.exe`. Стандартный путь:
+Windows устанавливается файлом GibddExamSimulator-Setup-2.0.1-win-x64.exe в стандартный каталог:
 
-```text
+~~~text
 C:\Program Files\GibddExamSimulator
-```
+~~~
 
-Локальная история и защищённая сессия хранятся отдельно от программы:
+Локальные данные Windows хранятся отдельно и переживают обновление программы:
 
-```text
+~~~text
 %LOCALAPPDATA%\GibddExamSimulator\Data\questions.db
 %LOCALAPPDATA%\GibddExamSimulator\auth-session.bin
 %LOCALAPPDATA%\GibddExamSimulator\Updates\
-```
+~~~
 
-Установщик требует права администратора для `Program Files`. Ярлык рабочего стола предлагается как необязательная задача. Коммерческой подписи кода нет, поэтому SmartScreen может показать предупреждение неизвестного издателя; сверяйте SHA-256 из выпуска.
+Android устанавливается файлом GibddExamSimulator-2.0.1-android-DEV-SIGNED.apk либо production-signed вариантом без суффикса DEV-SIGNED. APK содержит банк и все изображения внутри, поэтому экзамен запускается без GitHub Pages и без интернета. PWA остаётся отдельным web-артефактом и не заменяет APK.
 
-## Первый запуск владельца
+## Настройка сервера
 
-1. Разверните Supabase и серверную Telegram-функцию по [NETWORK_SETUP.md](NETWORK_SETUP.md).
-2. Создайте кандидату пользователя в Supabase Auth; самостоятельная регистрация отключена.
-3. Сгенерируйте публичную конфигурацию клиентов:
+Публичные настройки клиентов создаются одной командой:
 
-```powershell
-python .\tools\configure_deployment.py \`
-  --supabase-url "https://PROJECT.supabase.co" \`
-  --supabase-publishable-key "PUBLISHABLE_KEY" \`
-  --github-repository "OWNER/REPOSITORY" \`
+~~~powershell
+python .\tools\configure_deployment.py \
+  --supabase-url "https://PROJECT.supabase.co" \
+  --supabase-publishable-key "PUBLISHABLE_KEY" \
+  --github-repository "OWNER/REPOSITORY" \
   --pages-base "/"
-```
+~~~
 
-В конфигурации допустимы только URL проекта, publishable key и публичное имя GitHub-репозитория. Без Supabase оба клиента работают локально; облачная история и Telegram начнут работать после настройки.
+Подробная настройка Supabase, Telegram webhook, PWA и обновлений описана в [NETWORK_SETUP.md](NETWORK_SETUP.md). Старый Telegram token необходимо отозвать: [SECURITY_ACTION_REQUIRED.md](SECURITY_ACTION_REQUIRED.md).
 
-## Сборка
+## Сборка и тесты
 
-Требуются .NET SDK 10.0.203+, Python 3.11+ и Windows x64 для WPF/установщика.
+Основные требования: .NET SDK 10.0.203+, Python 3.11+, JDK 17, Android SDK 36; для WPF и Inno Setup нужна Windows x64.
 
-```powershell
-dotnet restore .\GibddExamSimulator.sln
+~~~powershell
 python .\tools\build_ab_question_bank.py --validate-only
 python .\tools\scan_for_secrets.py
-dotnet test .\GibddExamSimulator.sln -c Release
+dotnet test .\tests\GibddExamSimulator.Tests\GibddExamSimulator.Tests.csproj -c Release
+dotnet test .\tests\GibddExamSimulator.Sync.Tests\GibddExamSimulator.Sync.Tests.csproj -c Release
+dotnet test .\tests\GibddExamSimulator.Web.Tests\GibddExamSimulator.Web.Tests.csproj -c Release
+dotnet build .\src\GibddExamSimulator.App\GibddExamSimulator.App.csproj -c Release
+dotnet build .\src\GibddExamSimulator.Web\GibddExamSimulator.Web.csproj -c Release
+~~~
+
+Установщик:
+
+~~~powershell
 .\installer\Prepare-InnoSetup.ps1
-.\installer\Build-Installer.ps1 -AppVersion 2.0.0 -DotnetPath (Get-Command dotnet).Source
-```
+.\installer\Build-Installer.ps1 -AppVersion 2.0.1 -DotnetPath (Get-Command dotnet).Source
+~~~
 
-PWA:
+Android APK:
 
-```powershell
-dotnet publish .\src\GibddExamSimulator.Web\GibddExamSimulator.Web.csproj \`
-  -c Release -o .\artifacts\publish\pwa
-```
+~~~powershell
+dotnet workload install maui-android
+dotnet restore .\src\GibddExamSimulator.Android\GibddExamSimulator.Android.csproj -r android-arm64
+dotnet publish .\src\GibddExamSimulator.Android\GibddExamSimulator.Android.csproj \
+  -f net10.0-android -c Release -r android-arm64 \
+  -p:AndroidPackageFormats=apk
+~~~
 
-`ci.yml` проверяет банк, секреты, C#, WPF и Edge Function. `pages.yml` публикует PWA из `main`; `release.yml` по тегу `v*` создаёт Windows installer, `update-manifest.json`, checksum и PWA ZIP.
-
-Подробнее о происхождении банка: [DATA_SOURCES.md](DATA_SOURCES.md). Обязательное действие с ранее раскрытым токеном: [SECURITY_ACTION_REQUIRED.md](SECURITY_ACTION_REQUIRED.md).
+Подробности: [архитектура](docs/ARCHITECTURE.md), [сборка Android](docs/ANDROID_BUILD.md), [визуальный контракт Windows](docs/DESKTOP_EXAM_VISUAL_CONTRACT.md), [протокол синхронизации](docs/SYNC_PROTOCOL.md), [матрица тестов](docs/TEST_MATRIX.md), [источник банка](DATA_SOURCES.md).

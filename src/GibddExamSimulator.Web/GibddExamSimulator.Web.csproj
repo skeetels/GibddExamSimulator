@@ -19,6 +19,7 @@
     <ProjectReference Include="..\GibddExamSimulator.Core\GibddExamSimulator.Core.csproj" />
     <ProjectReference Include="..\GibddExamSimulator.Application\GibddExamSimulator.Application.csproj" />
     <ProjectReference Include="..\GibddExamSimulator.Sync\GibddExamSimulator.Sync.csproj" />
+    <ProjectReference Include="..\GibddExamSimulator.Mobile.Shared\GibddExamSimulator.Mobile.Shared.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -26,6 +26,11 @@ public sealed class MainViewModel : ObservableObject
     private static readonly Brush TealBrush = FrozenBrush(0, 137, 123);
     private static readonly Brush RedBrush = FrozenBrush(179, 38, 30);
     private static readonly Brush PaleBlueBrush = FrozenBrush(218, 234, 246);
+    private static readonly Brush LegacySelectedBrush = FrozenBrush(221, 234, 246);
+    private static readonly Brush LegacyConfirmedBrush = FrozenBrush(187, 210, 232);
+    private static readonly Brush LegacyViewedBrush = FrozenBrush(255, 249, 218);
+    private static readonly Brush LegacyAnsweredBrush = FrozenBrush(224, 224, 224);
+    private static readonly Brush LegacyServiceBlueBrush = FrozenBrush(18, 90, 156);
     private static readonly Brush PaleYellowBrush = FrozenBrush(255, 243, 189);
     private static readonly Brush MutedBrush = FrozenBrush(238, 241, 243);
     private readonly SemaphoreSlim _syncGate = new(1, 1);
@@ -50,6 +55,9 @@ public sealed class MainViewModel : ObservableObject
     private string _questionTicketCaption = string.Empty;
     private string _questionText = string.Empty;
     private string _remainingTime = "20:00";
+    private string _questionTitle = string.Empty;
+    private string _examStatusMessage = "Выберите вопрос из перечня.";
+    private bool _isExamOverview = true;
     private ImageSource? _currentImage;
     private bool _canConfirm;
     private string _supplementaryTitle = string.Empty;
@@ -82,6 +90,7 @@ public sealed class MainViewModel : ObservableObject
     private ExamResult? _lastResult;
     private StudySessionEnvelope? _lastEnvelope;
     private readonly List<ReviewErrorItem> _reviewErrors = [];
+    private readonly Dictionary<string, ImageSource?> _examImageCache = new(StringComparer.OrdinalIgnoreCase);
     private int _reviewIndex;
     private UpdateCheckResult? _availableUpdate;
     private string _localDataRoot = string.Empty;
@@ -92,8 +101,12 @@ public sealed class MainViewModel : ObservableObject
         PrepareExamCommand = new AsyncRelayCommand(PrepareExamAsync);
         BeginExamCommand = new RelayCommand(BeginExam);
         NavigateQuestionCommand = new RelayCommand<int>(NavigateQuestion);
+        OpenOverviewQuestionCommand = new RelayCommand<int>(OpenOverviewQuestion);
         SelectAnswerCommand = new RelayCommand<int>(SelectAnswer);
         ConfirmAnswerCommand = new AsyncRelayCommand(ConfirmAnswerAsync);
+        ReturnToOverviewCommand = new RelayCommand(ShowExamOverview);
+        PreviousQuestionCommand = new RelayCommand(() => NavigateExamRelative(-1));
+        NextQuestionCommand = new RelayCommand(() => NavigateExamRelative(1));
         StartSupplementaryCommand = new RelayCommand(StartSupplementary);
         ReturnHomeCommand = new AsyncRelayCommand(ReturnHomeAsync);
         ReviewErrorsCommand = new RelayCommand(OpenReview);
@@ -108,6 +121,7 @@ public sealed class MainViewModel : ObservableObject
 
     public ObservableCollection<QuestionNavigationItem> QuestionNavigation { get; } = [];
     public ObservableCollection<AnswerChoiceItem> AnswerChoices { get; } = [];
+    public ObservableCollection<ExamQuestionPreviewItem> OverviewQuestions { get; } = [];
 
     public PageKind Page { get => _page; private set => SetProperty(ref _page, value); }
     public string LoadingText { get => _loadingText; private set => SetProperty(ref _loadingText, value); }
@@ -128,6 +142,18 @@ public sealed class MainViewModel : ObservableObject
     public string QuestionTicketCaption { get => _questionTicketCaption; private set => SetProperty(ref _questionTicketCaption, value); }
     public string QuestionText { get => _questionText; private set => SetProperty(ref _questionText, value); }
     public string RemainingTime { get => _remainingTime; private set => SetProperty(ref _remainingTime, value); }
+    public string QuestionTitle { get => _questionTitle; private set => SetProperty(ref _questionTitle, value); }
+    public string ExamStatusMessage { get => _examStatusMessage; private set => SetProperty(ref _examStatusMessage, value); }
+    public bool IsExamOverview { get => _isExamOverview; private set => SetProperty(ref _isExamOverview, value); }
+    public string TerminalText => $"Терминал {_engine?.Session?.Candidate.TerminalNumber ?? 6}";
+    public string CandidateText => _engine?.Session is null
+        ? string.Empty
+        : $"{_engine.Session.Candidate.FullName}, Категория {_engine.Session.Candidate.Category}";
+    public string ExamOverviewHeaderText => _engine?.Session is null
+        ? "ПЕРЕЧЕНЬ ВОПРОСОВ"
+        : $"ПЕРЕЧЕНЬ ВОПРОСОВ — отвечено {_engine.Session.ActiveQuestions.Count(item => item.ConfirmedAnswer.HasValue)} из {_engine.Session.ActiveQuestions.Count}";
+    public int ExamOverviewColumnCount => Math.Max(1, (OverviewQuestions.Count + 4) / 5);
+    public bool IsDemoQuestion => false;
     public ImageSource? CurrentImage
     {
         get => _currentImage;
@@ -168,8 +194,12 @@ public sealed class MainViewModel : ObservableObject
     public ICommand PrepareExamCommand { get; }
     public ICommand BeginExamCommand { get; }
     public ICommand NavigateQuestionCommand { get; }
+    public ICommand OpenOverviewQuestionCommand { get; }
     public ICommand SelectAnswerCommand { get; }
     public ICommand ConfirmAnswerCommand { get; }
+    public ICommand ReturnToOverviewCommand { get; }
+    public ICommand PreviousQuestionCommand { get; }
+    public ICommand NextQuestionCommand { get; }
     public ICommand StartSupplementaryCommand { get; }
     public ICommand ReturnHomeCommand { get; }
     public ICommand ReviewErrorsCommand { get; }
@@ -279,13 +309,17 @@ public sealed class MainViewModel : ObservableObject
 
     public void HandleDigitShortcut(int number)
     {
-        if (Page == PageKind.Exam)
+        if (Page == PageKind.Exam && !IsExamOverview)
             SelectAnswer(number);
     }
 
     public void HandleConfirmShortcut()
     {
-        if (Page == PageKind.Exam)
+        if (Page != PageKind.Exam)
+            return;
+        if (IsExamOverview)
+            OpenCurrentQuestion();
+        else
             ConfirmAnswerCommand.Execute(null);
     }
 
@@ -293,8 +327,46 @@ public sealed class MainViewModel : ObservableObject
     {
         if (Page != PageKind.Exam || _engine?.Session is null)
             return;
-        _engine.NavigateRelative(offset);
-        RefreshExamPresentation();
+        if (IsExamOverview)
+            NavigateOverviewRelative(offset);
+        else
+            NavigateExamRelative(offset);
+    }
+
+    public void HandleTerminalKey(Key key)
+    {
+        if (Page != PageKind.Exam)
+            return;
+        if (IsExamOverview)
+        {
+            if (key is Key.Enter or Key.Space)
+                OpenCurrentQuestion();
+            else if (key == Key.Left)
+                NavigateOverviewRelative(-1);
+            else if (key == Key.Right)
+                NavigateOverviewRelative(1);
+            return;
+        }
+
+        var answer = key switch
+        {
+            Key.D1 or Key.NumPad1 => 1,
+            Key.D2 or Key.NumPad2 => 2,
+            Key.D3 or Key.NumPad3 => 3,
+            Key.D4 or Key.NumPad4 => 4,
+            Key.D5 or Key.NumPad5 => 5,
+            _ => 0
+        };
+        if (answer > 0)
+            SelectAnswer(answer);
+        else if (key == Key.Escape)
+            ShowExamOverview();
+        else if (key is Key.Enter or Key.Space)
+            ConfirmAnswerCommand.Execute(null);
+        else if (key == Key.Left)
+            NavigateExamRelative(-1);
+        else if (key == Key.Right)
+            NavigateExamRelative(1);
     }
 
     public void ShowResultPage()
@@ -307,6 +379,12 @@ public sealed class MainViewModel : ObservableObject
     {
         if (_engine?.Session?.Status == AttemptStatus.InProgress)
             _engine.Interrupt("Попытка прервана при закрытии программы.");
+    }
+
+    public async Task AbortActiveExamAsync()
+    {
+        InterruptActiveExam();
+        await ReturnHomeAsync();
     }
 
     private async Task ActivateUserAsync(Guid userId)
@@ -376,6 +454,9 @@ public sealed class MainViewModel : ObservableObject
         };
         _engine = new ExamEngine.ExamEngine();
         _engine.Start(candidate, _readyQuestions);
+        _examImageCache.Clear();
+        IsExamOverview = true;
+        ExamStatusMessage = "Выберите вопрос из перечня. Все вопросы доступны в произвольном порядке.";
         Page = PageKind.Exam;
         RefreshExamPresentation();
     }
@@ -383,22 +464,92 @@ public sealed class MainViewModel : ObservableObject
     private void NavigateQuestion(int index)
     {
         if (_engine?.NavigateTo(index) == true)
+        {
+            IsExamOverview = false;
+            ExamStatusMessage = _engine.Session!.CurrentQuestion!.ConfirmedAnswer.HasValue
+                ? "Ответ на этот вопрос уже зафиксирован. Нажмите Esc для возврата к перечню."
+                : "Выберите вариант ответа и нажмите «Ответить».";
             RefreshExamPresentation();
+        }
+    }
+
+    private void OpenOverviewQuestion(int index) => NavigateQuestion(index);
+
+    private void OpenCurrentQuestion()
+    {
+        if (_engine?.Session?.CurrentQuestion is null)
+            return;
+        IsExamOverview = false;
+        ExamStatusMessage = _engine.Session.CurrentQuestion.ConfirmedAnswer.HasValue
+            ? "Ответ на этот вопрос уже зафиксирован. Нажмите Esc для возврата к перечню."
+            : "Выберите вариант ответа и нажмите «Ответить».";
+        RefreshExamPresentation();
+    }
+
+    private void ShowExamOverview()
+    {
+        if (_engine?.Session is null)
+            return;
+        IsExamOverview = true;
+        ExamStatusMessage = "Выберите вопрос из перечня. Все вопросы доступны в произвольном порядке.";
+        RefreshExamPresentation();
+    }
+
+    private void NavigateExamRelative(int offset)
+    {
+        if (_engine?.Session is null)
+            return;
+        var target = Math.Clamp(
+            _engine.Session.CurrentQuestionIndex + offset,
+            0,
+            _engine.Session.ActiveQuestions.Count - 1);
+        NavigateQuestion(target);
+    }
+
+    private void NavigateOverviewRelative(int offset)
+    {
+        if (_engine?.Session is null)
+            return;
+        var target = Math.Clamp(
+            _engine.Session.CurrentQuestionIndex + offset,
+            0,
+            _engine.Session.ActiveQuestions.Count - 1);
+        if (_engine.NavigateTo(target))
+        {
+            ExamStatusMessage = $"Выбран вопрос {target + 1}. Нажмите Enter или пробел, чтобы открыть.";
+            RefreshExamPresentation();
+        }
     }
 
     private void SelectAnswer(int number)
     {
         if (_engine?.SelectAnswer(number) == true)
+        {
+            ExamStatusMessage = $"Выбран вариант {number}. Для фиксации нажмите «Ответить».";
             RefreshExamPresentation();
+        }
     }
 
     private async Task ConfirmAnswerAsync()
     {
         if (_engine is null || _handlingTransition)
             return;
-        _engine.ConfirmAnswer();
+        var status = _engine.ConfirmAnswer();
+        ExamStatusMessage = status switch
+        {
+            ConfirmAnswerStatus.NoAnswerSelected => "Сначала выберите вариант ответа.",
+            ConfirmAnswerStatus.AlreadyConfirmed => "Ответ на этот вопрос уже зафиксирован и не может быть изменён.",
+            ConfirmAnswerStatus.ExamNotRunning => "Этап экзамена завершён.",
+            _ => "Ответ зафиксирован."
+        };
         RefreshExamPresentation();
         await HandleExamTransitionAsync();
+        if (Page == PageKind.Exam && status == ConfirmAnswerStatus.Accepted)
+        {
+            IsExamOverview = true;
+            ExamStatusMessage = "Ответ зафиксирован. Выберите следующий вопрос из перечня.";
+            RefreshExamPresentation();
+        }
     }
 
     private async Task HandleExamTransitionAsync()
@@ -441,6 +592,8 @@ public sealed class MainViewModel : ObservableObject
         if (_engine is null || _supplementaryQuestions.Count == 0)
             return;
         _engine.StartSupplementary(_supplementaryQuestions);
+        IsExamOverview = true;
+        ExamStatusMessage = "Дополнительный блок начат. Выберите вопрос из перечня.";
         Page = PageKind.Exam;
         RefreshExamPresentation();
     }
@@ -452,13 +605,18 @@ public sealed class MainViewModel : ObservableObject
         if (session is null || state is null || _bank is null)
             return;
 
-        StageCaption = session.Stage == ExamStage.Supplementary ? "ДОПОЛНИТЕЛЬНЫЙ БЛОК" : "ЭКЗАМЕН";
+        StageCaption = session.Stage == ExamStage.Supplementary ? "ДОПОЛНИТЕЛЬНЫЙ БЛОК" : "ОСНОВНОЙ ЭКЗАМЕН";
         QuestionCounter = $"Вопрос {session.CurrentQuestionIndex + 1} из {session.ActiveQuestions.Count}";
+        QuestionTitle = $"ВОПРОС {state.SequenceNumber}";
         QuestionTicketCaption = $"Билет {state.Question.TicketNumber} · вопрос {state.Question.QuestionNumber} · блок {state.Question.ThematicBlockId}";
         QuestionText = state.Question.QuestionText;
         RemainingTime = DurationText(session.CurrentStageRemaining);
-        CurrentImage = QuestionImageLoader.Load(_bank.RootDirectory, state.Question.ImagePath);
+        CurrentImage = LoadExamImage(state.Question.ImagePath);
         CanConfirm = state.PendingAnswer.HasValue && !state.ConfirmedAnswer.HasValue;
+        OnPropertyChanged(nameof(TerminalText));
+        OnPropertyChanged(nameof(CandidateText));
+        OnPropertyChanged(nameof(ExamOverviewHeaderText));
+        OnPropertyChanged(nameof(IsDemoQuestion));
 
         QuestionNavigation.Clear();
         for (var index = 0; index < session.ActiveQuestions.Count; index++)
@@ -471,26 +629,69 @@ public sealed class MainViewModel : ObservableObject
             };
             if (index == session.CurrentQuestionIndex)
             {
-                navigation.Background = NavyBrush;
+                navigation.Background = LegacyServiceBlueBrush;
                 navigation.Foreground = Brushes.White;
-                navigation.Border = NavyBrush;
+                navigation.Border = Brushes.Black;
             }
             else if (item.ConfirmedAnswer.HasValue)
             {
-                navigation.Background = PaleBlueBrush;
-                navigation.Border = NavyBrush;
+                navigation.Background = FrozenBrush(210, 210, 210);
+                navigation.Border = FrozenBrush(120, 120, 120);
             }
             else if (item.PendingAnswer.HasValue)
             {
-                navigation.Background = PaleYellowBrush;
-                navigation.Border = TealBrush;
+                navigation.Background = LegacyViewedBrush;
+                navigation.Border = LegacyServiceBlueBrush;
             }
             else if (item.Progress == QuestionProgress.Viewed)
             {
-                navigation.Background = MutedBrush;
+                navigation.Background = FrozenBrush(247, 241, 202);
             }
             QuestionNavigation.Add(navigation);
         }
+
+        OverviewQuestions.Clear();
+        var columnCount = Math.Max(1, (session.ActiveQuestions.Count + 4) / 5);
+        for (var row = 0; row < 5; row++)
+        {
+            for (var column = 0; column < columnCount; column++)
+            {
+                var index = column * 5 + row;
+                if (index >= session.ActiveQuestions.Count)
+                    continue;
+                var item = session.ActiveQuestions[index];
+                OverviewQuestions.Add(new ExamQuestionPreviewItem
+                {
+                    Index = index,
+                    Number = item.SequenceNumber,
+                    QuestionText = item.Question.QuestionText,
+                    Image = LoadExamImage(item.Question.ImagePath),
+                    ProgressText = item.Progress switch
+                    {
+                        QuestionProgress.Answered => "ОТВЕЧЕН",
+                        QuestionProgress.Viewed => "ОТКРЫТ",
+                        _ => string.Empty
+                    },
+                    ProgressBrush = item.Progress == QuestionProgress.Answered ? Brushes.DarkGreen : Brushes.DimGray,
+                    Border = item.Question.GroupId switch
+                    {
+                        1 => FrozenBrush(20, 130, 58),
+                        2 => FrozenBrush(151, 39, 156),
+                        3 => FrozenBrush(35, 83, 190),
+                        _ => FrozenBrush(180, 150, 0)
+                    },
+                    Background = index == session.CurrentQuestionIndex
+                        ? LegacySelectedBrush
+                        : item.Progress switch
+                        {
+                            QuestionProgress.Answered => LegacyAnsweredBrush,
+                            QuestionProgress.Viewed => LegacyViewedBrush,
+                            _ => Brushes.White
+                        }
+                });
+            }
+        }
+        OnPropertyChanged(nameof(ExamOverviewColumnCount));
 
         AnswerChoices.Clear();
         for (var index = 0; index < state.Question.Answers.Count; index++)
@@ -504,11 +705,22 @@ public sealed class MainViewModel : ObservableObject
             };
             if (state.PendingAnswer == number)
             {
-                choice.Background = state.ConfirmedAnswer.HasValue ? PaleBlueBrush : PaleYellowBrush;
-                choice.Border = NavyBrush;
+                choice.Background = state.ConfirmedAnswer.HasValue ? LegacyConfirmedBrush : LegacySelectedBrush;
+                choice.Border = LegacyServiceBlueBrush;
             }
             AnswerChoices.Add(choice);
         }
+    }
+
+    private ImageSource? LoadExamImage(string? imagePath)
+    {
+        if (_bank is null || string.IsNullOrWhiteSpace(imagePath))
+            return null;
+        if (_examImageCache.TryGetValue(imagePath, out var cached))
+            return cached;
+        var image = QuestionImageLoader.Load(_bank.RootDirectory, imagePath);
+        _examImageCache[imagePath] = image;
+        return image;
     }
 
     private async Task CompleteExamAsync()
@@ -617,6 +829,11 @@ public sealed class MainViewModel : ObservableObject
         _engine = null;
         _readyQuestions = [];
         _supplementaryQuestions = [];
+        _examImageCache.Clear();
+        OverviewQuestions.Clear();
+        QuestionNavigation.Clear();
+        AnswerChoices.Clear();
+        IsExamOverview = true;
         CurrentImage = null;
         await RefreshHomeStatisticsAsync();
         Page = PageKind.Home;

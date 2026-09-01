@@ -19,4 +19,15 @@
     <ProjectReference Include="..\..\src\GibddExamSimulator.Infrastructure\GibddExamSimulator.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\GibddExamSimulator.Sync\GibddExamSimulator.Sync.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="..\..\src\GibddExamSimulator.App\ExamTerminalWindow.xaml"
+             Link="DesktopContract\ExamTerminalWindow.xaml"
+             CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\src\GibddExamSimulator.App\Views\ExamView.xaml"
+             Link="DesktopContract\ExamView.xaml"
+             CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\src\GibddExamSimulator.App\Resources\LegacyExamTheme.xaml"
+             Link="DesktopContract\LegacyExamTheme.xaml"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

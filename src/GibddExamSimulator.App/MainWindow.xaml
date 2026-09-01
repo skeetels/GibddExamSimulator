@@ -1,6 +1,7 @@
 <Window x:Class="GibddExamSimulator.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="clr-namespace:GibddExamSimulator.Views"
         Title="Экзамен ГИБДД — категория AB"
         Background="{StaticResource Surface}"
         WindowStyle="None"
@@ -123,7 +124,7 @@
       </Grid>
       <Border Grid.Row="2" Background="#E6EAED" BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Padding="28,10">
         <Grid>
-          <TextBlock Text="800 вопросов · 40 билетов · 548 JPEG-изображений · версия 2.0.0" VerticalAlignment="Center" Foreground="{StaticResource Muted}" />
+          <TextBlock Text="800 вопросов · 40 билетов · 548 JPEG-изображений · версия 2.0.1" VerticalAlignment="Center" Foreground="{StaticResource Muted}" />
           <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
             <Button Content="Выйти из аккаунта" Command="{Binding SignOutCommand}" Margin="0,0,10,0" />
             <Button Content="Закрыть программу" Command="{Binding ExitCommand}" />
@@ -295,5 +296,9 @@
         </Grid>
       </Border>
     </Grid>
+
+    <!-- Exact flat result/review surfaces from the 1.2.0 reference are kept above the modern shell. -->
+    <views:ResultView Visibility="{Binding Page, Converter={StaticResource PageVisibility}, ConverterParameter=Result}" />
+    <views:ReviewErrorsView Visibility="{Binding Page, Converter={StaticResource PageVisibility}, ConverterParameter=Review}" />
   </Grid>
 </Window>

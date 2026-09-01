@@ -15,7 +15,8 @@ public enum StudyMode
 public enum StudyDeviceKind
 {
     WindowsDesktop,
-    MobilePwa
+    MobilePwa,
+    AndroidApp
 }
 
 public enum StudyOutcome

@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+  <PropertyGroup>
+    <TargetFramework>net10.0-android</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>GibddExamSimulator.Android</RootNamespace>
+    <UseMaui>true</UseMaui>
+    <SingleProject>true</SingleProject>
+    <EnableDefaultCssItems>false</EnableDefaultCssItems>
+    <ApplicationTitle>Тренажёр экзамена ГИБДД</ApplicationTitle>
+    <ApplicationId>app.gibddexamsimulator.mobile</ApplicationId>
+    <ApplicationDisplayVersion>2.0.1</ApplicationDisplayVersion>
+    <ApplicationVersion>201</ApplicationVersion>
+    <SupportedOSPlatformVersion>26.0</SupportedOSPlatformVersion>
+    <AndroidPackageFormats>apk</AndroidPackageFormats>
+    <AndroidUseAapt2>true</AndroidUseAapt2>
+    <AndroidUseApkSigner>true</AndroidUseApkSigner>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(AndroidSigningKeyStore)' != ''">
+    <AndroidKeyStore>true</AndroidKeyStore>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <MauiIcon Include="..\..\assets\branding\app-icon-1024.png"
+              Link="Resources\AppIcon\appicon.png"
+              Color="#0F3452"
+              BaseSize="512,512" />
+    <MauiSplashScreen Include="..\..\assets\branding\logo-master.png"
+                      Link="Resources\Splash\splash.png"
+                      Color="#0F3452"
+                      BaseSize="256,256" />
+    <MauiAsset Include="wwwroot\**" LogicalName="wwwroot\%(RecursiveDir)%(Filename)%(Extension)" />
+    <MauiAsset Include="Configuration\client-settings.json" LogicalName="client-settings.json" />
+    <MauiAsset Include="..\GibddExamSimulator.Web\wwwroot\css\app.css" LogicalName="wwwroot\css\app.css" />
+    <MauiAsset Include="..\..\assets\branding\logo-master.png" LogicalName="wwwroot\logo.png" />
+    <MauiAsset Include="..\..\assets\question-bank\ab\**\*"
+               LogicalName="wwwroot\question-bank\ab\%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="$(MauiVersion)" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\GibddExamSimulator.Core\GibddExamSimulator.Core.csproj" />
+    <ProjectReference Include="..\GibddExamSimulator.Application\GibddExamSimulator.Application.csproj" />
+    <ProjectReference Include="..\GibddExamSimulator.Infrastructure\GibddExamSimulator.Infrastructure.csproj" />
+    <ProjectReference Include="..\GibddExamSimulator.Sync\GibddExamSimulator.Sync.csproj" />
+    <ProjectReference Include="..\GibddExamSimulator.Mobile.Shared\GibddExamSimulator.Mobile.Shared.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,4 +1,3 @@
-using System.Net.Http.Json;
 using GibddExamSimulator.Application.Learning;
 using GibddExamSimulator.Application.Storage;
 using GibddExamSimulator.Application.StudySessions;
@@ -7,19 +6,22 @@ using GibddExamSimulator.ExamEngine;
 using GibddExamSimulator.Models;
 using GibddExamSimulator.Sync;
 
-namespace GibddExamSimulator.Web.Services;
+namespace GibddExamSimulator.Mobile.Shared.Services;
 
 public sealed class MobileAppState(
-    HttpClient httpClient,
-    BrowserStudyStore store,
-    WebQuestionBankLoader bankLoader,
-    OfflinePackageService offlinePackage)
+    ILocalStudyStore store,
+    IAuthSessionStore authStore,
+    IMobileConfigurationProvider configurationProvider,
+    IMobileQuestionBankLoader bankLoader,
+    IMobileOfflinePackageService offlinePackage,
+    IMobilePlatform platform)
 {
     private const string RulesProfile = "ru-theory-mvd80-2025-05-26";
     private readonly LearningProfileBuilder _profileBuilder = new();
     private readonly TrainingQuestionPlanner _trainingPlanner = new();
     private readonly QuestionSelector _questionSelector = new();
     private readonly SemaphoreSlim _syncGate = new(1, 1);
+    private readonly MobileReleaseUpdateService _updateService = new();
     private SupabaseAuthClient? _authClient;
     private SyncCoordinator? _sync;
     private AuthSession? _auth;
@@ -31,7 +33,7 @@ public sealed class MobileAppState(
     public string InitializationStatus { get; private set; } = "Проверяем 800 вопросов AB…";
     public string InitializationError { get; private set; } = string.Empty;
     public MobileClientConfiguration Configuration { get; private set; } = new();
-    public WebQuestionBank? Bank { get; private set; }
+    public MobileQuestionBank? Bank { get; private set; }
     public Guid DeviceId { get; private set; }
     public Guid UserId { get; private set; }
     public bool IsCloudConfigured => Configuration.IsCloudConfigured;
@@ -39,8 +41,8 @@ public sealed class MobileAppState(
     public bool CanStudy => UserId != Guid.Empty;
     public string AccountCaption => _auth?.Email ?? (IsCloudConfigured ? "Вход не выполнен" : "Локальный режим");
     public string DeviceCaption => DeviceId == Guid.Empty
-        ? "Телефон / PWA"
-        : $"Телефон / PWA · {DeviceId.ToString("N")[..6].ToUpperInvariant()}";
+        ? platform.DeviceLabel
+        : $"{platform.DeviceLabel} · {DeviceId.ToString("N")[..6].ToUpperInvariant()}";
     public string Status { get; private set; } = string.Empty;
     public string SyncStatus { get; private set; } = string.Empty;
     public ActiveSessionDraft? SavedDraft { get; private set; }
@@ -51,9 +53,14 @@ public sealed class MobileAppState(
     public double AccuracyPercent { get; private set; }
     public string WeakTickets { get; private set; } = "Недостаточно данных";
     public int OfflineImageCount { get; private set; }
+    public bool ImagesAreBundled => offlinePackage.IsBundled;
     public int OfflineCompleted { get; private set; }
     public int OfflineTotal { get; private set; }
     public bool IsOfflineDownloadRunning { get; private set; }
+    public string UpdateStatus { get; private set; } = string.Empty;
+    public bool HasInstallableUpdate => _availableUpdate is not null;
+    public bool SupportsInstallableUpdates => platform.SupportsInstallableUpdates;
+    private MobileReleaseUpdate? _availableUpdate;
     public string OfflinePackageSizeCaption => Bank is null
         ? string.Empty
         : $"≈ {Math.Ceiling(Bank.Manifest.ImageBytes / 1024d / 1024d):0} МБ";
@@ -69,7 +76,7 @@ public sealed class MobileAppState(
             await store.InitializeAsync();
             InitializationStatus = "Загружаем настройки подключения…";
             Notify();
-            Configuration = await httpClient.GetFromJsonAsync<MobileClientConfiguration>("client-settings.json") ?? new();
+            Configuration = await configurationProvider.LoadAsync();
             InitializationStatus = "Проверяем 800 вопросов AB…";
             Notify();
             Bank = await bankLoader.LoadAsync();
@@ -83,8 +90,8 @@ public sealed class MobileAppState(
             {
                 var options = Configuration.ToSupabaseOptions();
                 _authClient = new SupabaseAuthClient(options);
-                _sync = new SyncCoordinator(store, store, _authClient, new SupabaseStudySessionRemote(options));
-                _auth = await store.LoadAsync();
+                _sync = new SyncCoordinator(store, authStore, _authClient, new SupabaseStudySessionRemote(options));
+                _auth = await authStore.LoadAsync();
                 if (_auth is not null)
                 {
                     UserId = _auth.UserId;
@@ -130,7 +137,7 @@ public sealed class MobileAppState(
             Status = "Вход…";
             Notify();
             _auth = await _authClient.SignInWithPasswordAsync(email, password);
-            await store.SaveAsync(_auth);
+            await authStore.SaveAsync(_auth);
             UserId = _auth.UserId;
             SavedDraft = await store.GetDraftAsync(UserId);
             await SyncAsync();
@@ -158,7 +165,7 @@ public sealed class MobileAppState(
         {
             // Local token removal still proceeds if the network is unavailable.
         }
-        await store.ClearAsync();
+        await authStore.ClearAsync();
         _auth = null;
         UserId = Guid.Empty;
         ActiveSession = null;
@@ -180,7 +187,8 @@ public sealed class MobileAppState(
         ActiveSession = MobileSessionController.CreateExam(
             DeviceId,
             new CandidateProfile { FullName = candidateName, Category = "AB", Department = "Мобильный тренажёр" },
-            questions);
+            questions,
+            platform.DeviceKind);
         LastCompletedSession = null;
         await SaveDraftAsync();
         Notify();
@@ -205,7 +213,7 @@ public sealed class MobileAppState(
             Status = "Для выбранного режима пока недостаточно истории; подготовлены «Умные 10».";
             mode = StudyMode.SmartTen;
         }
-        ActiveSession = MobileSessionController.CreateTraining(DeviceId, mode, questions);
+        ActiveSession = MobileSessionController.CreateTraining(DeviceId, mode, questions, platform.DeviceKind);
         LastCompletedSession = null;
         await SaveDraftAsync();
         Notify();
@@ -223,7 +231,7 @@ public sealed class MobileAppState(
             return false;
         }
         var byId = Bank.Questions.ToDictionary(question => question.Id);
-        ActiveSession = MobileSessionController.Restore(DeviceId, SavedDraft, byId);
+        ActiveSession = MobileSessionController.Restore(DeviceId, SavedDraft, byId, platform.DeviceKind);
         SavedDraft = null;
         Notify();
         return true;
@@ -260,6 +268,14 @@ public sealed class MobileAppState(
             await CompleteActiveSessionAsync();
         else
             await SaveDraftAsync();
+        Notify();
+    }
+
+    public async Task ContinueTrainingAsync()
+    {
+        if (ActiveSession?.ContinueTraining() != true)
+            return;
+        await SaveDraftAsync();
         Notify();
     }
 
@@ -300,7 +316,7 @@ public sealed class MobileAppState(
             Notify();
             var result = await _sync.SyncAsync(cancellationToken);
             SyncStatus = result.Message;
-            _auth = await store.LoadAsync();
+            _auth = await authStore.LoadAsync();
             await RefreshStatisticsAsync();
             Notify();
             return result;
@@ -382,6 +398,44 @@ public sealed class MobileAppState(
         OfflineTotal = 0;
         Status = "Офлайн-изображения удалены. Оболочка приложения и тексты вопросов сохранены.";
         Notify();
+    }
+
+    public async Task ResumeAsync()
+    {
+        if (!IsInitialized)
+            await InitializeAsync();
+        if (CanStudy)
+            await SyncAsync();
+    }
+
+    public async Task CheckForUpdatesAsync()
+    {
+        if (!platform.SupportsInstallableUpdates)
+            return;
+        try
+        {
+            UpdateStatus = "Проверяем GitHub Release…";
+            _availableUpdate = null;
+            Notify();
+            _availableUpdate = await _updateService.CheckAsync(
+                Configuration.GitHubRepository,
+                Version.Parse(platform.AppVersion));
+            UpdateStatus = _availableUpdate is null
+                ? $"Установлена актуальная версия {platform.AppVersion}."
+                : $"Доступна версия {_availableUpdate.Version}. Откройте подписанный APK релиза.";
+        }
+        catch (Exception exception)
+        {
+            UpdateStatus = "Проверка обновлений отложена: " + exception.Message;
+        }
+        Notify();
+    }
+
+    public async Task OpenAvailableUpdateAsync()
+    {
+        if (_availableUpdate is null)
+            return;
+        await platform.OpenUriAsync(_availableUpdate.DownloadUri);
     }
 
     private async Task CompleteActiveSessionAsync()

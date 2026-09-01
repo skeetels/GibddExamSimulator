@@ -1,4 +1,4 @@
-name: Windows release
+name: Windows and Android release
 
 on:
   push:
@@ -8,7 +8,7 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  windows-release:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,41 +28,153 @@ jobs:
           if ($version -notmatch '^\d+\.\d+\.\d+(\.\d+)?$') { throw "Invalid release version: $version" }
           python tools/configure_deployment.py --supabase-url $env:SUPABASE_URL --supabase-publishable-key $env:SUPABASE_PUBLISHABLE_KEY --github-repository $env:GITHUB_REPOSITORY --pages-base '/'
           "APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-      - run: python tools/build_ab_question_bank.py --validate-only
-      - run: python tools/scan_for_secrets.py
-      - run: dotnet restore GibddExamSimulator.sln
-      - run: dotnet test GibddExamSimulator.sln -c Release --no-restore
-      - name: Prepare verified Inno Setup
+      - name: Validate source and canonical AB bank
         shell: pwsh
-        run: ./installer/Prepare-InnoSetup.ps1
+        run: |
+          python tools/build_ab_question_bank.py --validate-only
+          python tools/scan_for_secrets.py
+      - name: Restore and test cross-platform projects
+        shell: pwsh
+        run: |
+          dotnet restore tests/GibddExamSimulator.Tests/GibddExamSimulator.Tests.csproj
+          dotnet restore tests/GibddExamSimulator.Sync.Tests/GibddExamSimulator.Sync.Tests.csproj
+          dotnet restore tests/GibddExamSimulator.Web.Tests/GibddExamSimulator.Web.Tests.csproj
+          dotnet test tests/GibddExamSimulator.Tests/GibddExamSimulator.Tests.csproj -c Release --no-restore
+          dotnet test tests/GibddExamSimulator.Sync.Tests/GibddExamSimulator.Sync.Tests.csproj -c Release --no-restore
+          dotnet test tests/GibddExamSimulator.Web.Tests/GibddExamSimulator.Web.Tests.csproj -c Release --no-restore
       - name: Build Windows installer
         shell: pwsh
-        run: ./installer/Build-Installer.ps1 -AppVersion $env:APP_VERSION -DotnetPath (Get-Command dotnet).Source -OutputDirectory "$PWD/outputs"
-      - name: Publish PWA archive
+        run: |
+          ./installer/Prepare-InnoSetup.ps1
+          ./installer/Build-Installer.ps1 -AppVersion $env:APP_VERSION -DotnetPath (Get-Command dotnet).Source -OutputDirectory "$PWD/outputs"
+      - name: Build PWA and source archives
         shell: pwsh
         run: |
-          dotnet publish src/GibddExamSimulator.Web/GibddExamSimulator.Web.csproj -c Release --no-restore -o outputs/pwa
-          Copy-Item outputs/pwa/wwwroot/index.html outputs/pwa/wwwroot/404.html
-          Compress-Archive -Path outputs/pwa/wwwroot/* -DestinationPath "outputs/GibddExamSimulator-PWA-$env:APP_VERSION.zip"
-      - name: Generate update manifest and checksum
+          dotnet publish src/GibddExamSimulator.Web/GibddExamSimulator.Web.csproj -c Release -o artifacts/publish/pwa
+          Copy-Item artifacts/publish/pwa/wwwroot/index.html artifacts/publish/pwa/wwwroot/404.html
+          ./tools/Package-Release.ps1 -Version $env:APP_VERSION -PwaWwwRoot "$PWD/artifacts/publish/pwa/wwwroot" -OutputDirectory "$PWD/outputs"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-and-web-release
+          path: outputs/*
+
+  android-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Generate public client configuration
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
+        run: python tools/configure_deployment.py --supabase-url "${SUPABASE_URL}" --supabase-publishable-key "${SUPABASE_PUBLISHABLE_KEY}" --github-repository "${GITHUB_REPOSITORY}" --pages-base '/'
+      - name: Install Android build dependencies
+        shell: bash
+        run: |
+          yes | sdkmanager "platforms;android-36" "build-tools;36.0.0" >/dev/null
+          dotnet workload install maui-android
+      - name: Publish standalone ARM64 APK
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          dotnet restore src/GibddExamSimulator.Android/GibddExamSimulator.Android.csproj -r android-arm64
+          publish_args=(
+            src/GibddExamSimulator.Android/GibddExamSimulator.Android.csproj
+            -f net10.0-android -c Release -r android-arm64 --no-restore
+            -p:AndroidPackageFormats=apk
+            "-p:ApplicationDisplayVersion=${version}"
+          )
+          artifact_name="GibddExamSimulator-${version}-android-DEV-SIGNED.apk"
+          if [[ -n "${ANDROID_KEYSTORE_BASE64}" && -n "${ANDROID_KEY_ALIAS}" && -n "${ANDROID_KEY_PASSWORD}" && -n "${ANDROID_KEYSTORE_PASSWORD}" ]]; then
+            keystore_path="${RUNNER_TEMP}/gibdd-release.keystore"
+            printf '%s' "${ANDROID_KEYSTORE_BASE64}" | base64 --decode > "${keystore_path}"
+            publish_args+=(
+              -p:AndroidKeyStore=true
+              "-p:AndroidSigningKeyStore=${keystore_path}"
+              "-p:AndroidSigningKeyAlias=${ANDROID_KEY_ALIAS}"
+              "-p:AndroidSigningKeyPass=${ANDROID_KEY_PASSWORD}"
+              "-p:AndroidSigningStorePass=${ANDROID_KEYSTORE_PASSWORD}"
+            )
+            artifact_name="GibddExamSimulator-${version}-android.apk"
+          fi
+          dotnet publish "${publish_args[@]}"
+          mkdir -p outputs
+          apk_path="$(find src/GibddExamSimulator.Android/bin/Release/net10.0-android/android-arm64/publish -name '*-Signed.apk' -print -quit)"
+          test -n "${apk_path}"
+          cp "${apk_path}" "outputs/${artifact_name}"
+          python3 tools/verify_android_apk.py "outputs/${artifact_name}"
+          "${ANDROID_HOME}/build-tools/36.0.0/apksigner" verify --verbose "outputs/${artifact_name}"
+          "${ANDROID_HOME}/build-tools/36.0.0/aapt2" dump badging "outputs/${artifact_name}" | grep "package: name='app.gibddexamsimulator.mobile'.*versionName='${version}'"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-release
+          path: outputs/*.apk
+
+  publish-release:
+    needs: [windows-release, android-release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: '*-release'
+          merge-multiple: true
+          path: outputs
+      - name: Generate update manifest and SHA-256 list
         shell: pwsh
         run: |
-          $installerName = "GibddExamSimulator-Setup-$env:APP_VERSION-win-x64.exe"
-          $installerPath = Join-Path "$PWD/outputs" $installerName
-          $hash = (Get-FileHash -LiteralPath $installerPath -Algorithm SHA256).Hash
+          $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          $installer = Get-Item -LiteralPath "outputs/GibddExamSimulator-Setup-$version-win-x64.exe"
+          $apk = Get-ChildItem -LiteralPath outputs -Filter '*.apk' | Select-Object -First 1
+          if ($null -eq $apk) { throw 'Android APK artifact is missing.' }
+          $installerHash = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash
+          $apkHash = (Get-FileHash -LiteralPath $apk.FullName -Algorithm SHA256).Hash
           $releaseUrl = "https://github.com/$env:GITHUB_REPOSITORY/releases/tag/$env:GITHUB_REF_NAME"
-          $downloadUrl = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:GITHUB_REF_NAME/$installerName"
-          [ordered]@{
-            version = $env:APP_VERSION
-            downloadUrl = $downloadUrl
-            sha256 = $hash
-            releaseNotes = "Версия $env:APP_VERSION"
+          $assetBase = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:GITHUB_REF_NAME"
+          $manifest = [ordered]@{
+            version = $version
+            downloadUrl = "$assetBase/$($installer.Name)"
+            sha256 = $installerHash
+            releaseNotes = "Версия $version: Windows, Android APK и PWA"
             publishedAtUtc = [DateTimeOffset]::UtcNow.ToString('o')
             releasePageUrl = $releaseUrl
-          } | ConvertTo-Json | Set-Content -LiteralPath outputs/update-manifest.json -Encoding utf8
-          "$hash  $installerName" | Set-Content -LiteralPath outputs/SHA256SUMS.txt -Encoding ascii
+            androidDownloadUrl = "$assetBase/$($apk.Name)"
+            androidSha256 = $apkHash
+            androidPackageId = 'app.gibddexamsimulator.mobile'
+            androidArchitecture = 'arm64-v8a'
+            androidMinimumSdk = 26
+          }
+          [IO.File]::WriteAllText(
+            (Join-Path $PWD 'outputs/update-manifest.json'),
+            ($manifest | ConvertTo-Json),
+            [Text.UTF8Encoding]::new($false))
+          Get-ChildItem -LiteralPath outputs -Filter 'SHA256SUMS*.txt' | Remove-Item -Force
+          $lines = Get-ChildItem -LiteralPath outputs -File | Sort-Object Name | ForEach-Object {
+            "$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash)  $($_.Name)"
+          }
+          [IO.File]::WriteAllLines(
+            (Join-Path $PWD 'outputs/SHA256SUMS.txt'),
+            $lines,
+            [Text.UTF8Encoding]::new($false))
       - name: Create GitHub Release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create $env:GITHUB_REF_NAME outputs/*.exe outputs/*.json outputs/*.txt outputs/*.zip --verify-tag --generate-notes --title "GibddExamSimulator $env:APP_VERSION"
+        run: |
+          $assets = Get-ChildItem -LiteralPath outputs -File | ForEach-Object FullName
+          gh release create $env:GITHUB_REF_NAME @assets --verify-tag --generate-notes --title "GibddExamSimulator $($env:GITHUB_REF_NAME.TrimStart('v'))"

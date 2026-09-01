@@ -13,15 +13,73 @@ public partial class MainWindow : Window
     {
         Interval = TimeSpan.FromMilliseconds(250)
     };
+    private MainViewModel? _subscribedViewModel;
+    private ExamTerminalWindow? _examTerminal;
 
     public MainWindow()
     {
         InitializeComponent();
+        DataContextChanged += OnDataContextChanged;
         _timer.Tick += OnTimerTick;
         _timer.Start();
     }
 
     private MainViewModel? ViewModel => DataContext as MainViewModel;
+
+    private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (_subscribedViewModel is not null)
+            _subscribedViewModel.PropertyChanged -= OnViewModelPropertyChanged;
+        _subscribedViewModel = e.NewValue as MainViewModel;
+        if (_subscribedViewModel is not null)
+            _subscribedViewModel.PropertyChanged += OnViewModelPropertyChanged;
+        SynchronizeTerminalWindow();
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(MainViewModel.Page))
+            Dispatcher.BeginInvoke(SynchronizeTerminalWindow);
+    }
+
+    private void SynchronizeTerminalWindow()
+    {
+        if (ViewModel is null)
+            return;
+        var terminalPage = ViewModel.Page is PageKind.Exam or PageKind.Supplementary;
+        if (terminalPage)
+        {
+            if (_examTerminal is null)
+            {
+                _examTerminal = new ExamTerminalWindow { DataContext = ViewModel };
+                _examTerminal.Closed += OnExamTerminalClosed;
+                _examTerminal.Show();
+            }
+            Hide();
+            _examTerminal.Activate();
+            return;
+        }
+
+        if (_examTerminal is not null)
+        {
+            var terminal = _examTerminal;
+            _examTerminal = null;
+            terminal.Closed -= OnExamTerminalClosed;
+            terminal.CloseFromHost();
+        }
+        if (!IsVisible)
+            Show();
+        Activate();
+    }
+
+    private void OnExamTerminalClosed(object? sender, EventArgs e)
+    {
+        if (sender == _examTerminal)
+            _examTerminal = null;
+        if (!IsVisible)
+            Show();
+        Activate();
+    }
 
     private async void LoginButton_Click(object sender, RoutedEventArgs e)
     {
@@ -60,6 +118,8 @@ public partial class MainWindow : Window
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (ViewModel is null)
+            return;
+        if (ViewModel.Page is PageKind.Exam or PageKind.Supplementary)
             return;
         var answer = e.Key switch
         {
@@ -110,5 +170,6 @@ public partial class MainWindow : Window
             return;
         }
         ViewModel.InterruptActiveExam();
+        _examTerminal?.CloseFromHost();
     }
 }

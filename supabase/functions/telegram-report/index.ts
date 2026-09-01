@@ -15,7 +15,7 @@ type AnswerPayload = {
 export type SessionPayload = {
   sessionId?: string;
   deviceId?: string;
-  deviceKind?: "WindowsDesktop" | "MobilePwa";
+  deviceKind?: "WindowsDesktop" | "MobilePwa" | "AndroidApp";
   mode?: string;
   outcome?: string;
   completedAtUtc?: string;
@@ -135,7 +135,9 @@ function durationText(milliseconds: number): string {
 }
 
 export function deviceLabel(payload: SessionPayload): string {
-  return payload.deviceKind === "MobilePwa" ? "Телефон / PWA" : "ПК";
+  if (payload.deviceKind === "AndroidApp") return "Телефон / APK";
+  if (payload.deviceKind === "MobilePwa") return "Телефон / PWA";
+  return "ПК";
 }
 
 export function installationCode(payload: SessionPayload): string {
@@ -144,7 +146,7 @@ export function installationCode(payload: SessionPayload): string {
   return compact.slice(0, 6) || "UNKNOWN";
 }
 
-function topProblemLines(
+export function topProblemLines(
   allSessions: StudySessionRow[],
   keySelector: (answer: AnswerPayload) => number | undefined,
   label: string,
@@ -184,6 +186,60 @@ function topProblemLines(
         durationText(average)
       }`;
     });
+}
+
+export function buildStatisticsCommand(allSessions: StudySessionRow[]): string {
+  const exams = allSessions.filter((row) => row.payload.mode === "Exam");
+  const passed = exams.filter((row) => row.payload.outcome === "Passed").length;
+  const answers = exams.flatMap((row) => row.payload.answers ?? []);
+  const correct = answers.filter((answer) => answer.isCorrect).length;
+  const accuracy = answers.length === 0
+    ? 0
+    : Math.round(correct * 100 / answers.length);
+  const devices = new Set(
+    exams.map((row) => row.payload.deviceId).filter((value) => Boolean(value)),
+  ).size;
+  return [
+    "📊 Общая статистика ГИБДД",
+    `Экзаменов: ${exams.length}`,
+    `Сдано: ${passed}`,
+    `Не сдано: ${Math.max(0, exams.length - passed)}`,
+    `Точность ответов: ${accuracy}% (${correct}/${answers.length})`,
+    `Установок в истории: ${devices}`,
+  ].join("\n");
+}
+
+export function buildMistakesCommand(allSessions: StudySessionRow[]): string {
+  const ticketLines = topProblemLines(
+    allSessions,
+    (answer) => answer.ticketNumber,
+    "• билет",
+  );
+  const blockLines = topProblemLines(
+    allSessions,
+    (answer) => answer.thematicBlockId,
+    "• блок",
+  );
+  return [
+    "🧩 Последние проблемные места",
+    "",
+    "Билеты:",
+    ...(ticketLines.length > 0 ? ticketLines : ["ошибок пока нет"]),
+    "",
+    "Тематические блоки:",
+    ...(blockLines.length > 0 ? blockLines : ["ошибок пока нет"]),
+  ].join("\n");
+}
+
+export function buildHelpCommand(): string {
+  return [
+    "🚦 Учебный помощник ГИБДД",
+    "/stats — общая статистика",
+    "/mistakes — сложные билеты и блоки",
+    "/today — открыть текущую тренировку",
+    "/last — последний экзамен",
+    "/help — список команд",
+  ].join("\n");
 }
 
 export function buildReport(

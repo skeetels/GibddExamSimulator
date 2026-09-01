@@ -15,17 +15,20 @@
         @Body
     </main>
 
-    <nav class="bottom-nav" aria-label="Основная навигация">
-        <NavLink href="/" Match="NavLinkMatch.All">
-            <span class="nav-icon">⌂</span><span>Главная</span>
-        </NavLink>
-        <NavLink href="/train">
-            <span class="nav-icon">✓</span><span>Учиться</span>
-        </NavLink>
-        <NavLink href="/progress">
-            <span class="nav-icon">▥</span><span>Прогресс</span>
-        </NavLink>
-    </nav>
+    @if (State.ActiveSession is null || State.ActiveSession.IsCompleted)
+    {
+        <nav class="bottom-nav" aria-label="Основная навигация">
+            <NavLink href="/" Match="NavLinkMatch.All">
+                <span class="nav-icon">⌂</span><span>Главная</span>
+            </NavLink>
+            <NavLink href="/train">
+                <span class="nav-icon">✓</span><span>Учиться</span>
+            </NavLink>
+            <NavLink href="/progress">
+                <span class="nav-icon">▥</span><span>Прогресс</span>
+            </NavLink>
+        </nav>
+    }
 </div>
 
 @code {

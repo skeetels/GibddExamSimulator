@@ -27,6 +27,21 @@ public sealed class SupabaseStudySessionRemoteTests
     }
 
     [Fact]
+    public async Task AndroidExamUpload_UsesDistinctDeviceKindAndSameAutomaticReportEndpoint()
+    {
+        var handler = new RecordingHandler(
+            new HttpResponseMessage(HttpStatusCode.Created),
+            new HttpResponseMessage(HttpStatusCode.OK));
+        var remote = CreateRemote(handler);
+
+        await remote.UploadAsync(CreateAuth(), CreateSession(StudyMode.Exam, StudyDeviceKind.AndroidApp));
+
+        Assert.Equal(2, handler.Requests.Count);
+        Assert.Contains("\"device_kind\":\"AndroidApp\"", handler.Requests[0].Body, StringComparison.Ordinal);
+        Assert.EndsWith("/functions/v1/telegram-report", handler.Requests[1].Uri, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task TrainingUpload_DoesNotInvokeTelegramFunction()
     {
         var handler = new RecordingHandler(new HttpResponseMessage(HttpStatusCode.Created));
@@ -79,11 +94,13 @@ public sealed class SupabaseStudySessionRemoteTests
         "refresh",
         DateTimeOffset.UtcNow.AddHours(1));
 
-    private static StudySessionEnvelope CreateSession(StudyMode mode) => new StudySessionEnvelope
+    private static StudySessionEnvelope CreateSession(
+        StudyMode mode,
+        StudyDeviceKind deviceKind = StudyDeviceKind.MobilePwa) => new StudySessionEnvelope
     {
         SessionId = Guid.NewGuid(),
         DeviceId = Guid.NewGuid(),
-        DeviceKind = StudyDeviceKind.MobilePwa,
+        DeviceKind = deviceKind,
         Mode = mode,
         StartedAtUtc = DateTimeOffset.UtcNow.AddMinutes(-1),
         CompletedAtUtc = DateTimeOffset.UtcNow,

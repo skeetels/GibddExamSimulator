@@ -1,11 +1,12 @@
 using GibddExamSimulator.Sync;
 
-namespace GibddExamSimulator.Web.Services;
+namespace GibddExamSimulator.Mobile.Shared.Services;
 
 public sealed record MobileClientConfiguration
 {
     public string SupabaseUrl { get; init; } = string.Empty;
     public string SupabasePublishableKey { get; init; } = string.Empty;
+    public string GitHubRepository { get; init; } = string.Empty;
     public bool IsCloudConfigured => Uri.TryCreate(SupabaseUrl, UriKind.Absolute, out var uri) &&
                                      uri.Scheme == Uri.UriSchemeHttps &&
                                      !string.IsNullOrWhiteSpace(SupabasePublishableKey);

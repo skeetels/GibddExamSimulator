@@ -39,6 +39,15 @@ def main() -> None:
         {
             "supabaseUrl": args.supabase_url.strip(),
             "supabasePublishableKey": args.supabase_publishable_key.strip(),
+            "gitHubRepository": args.github_repository.strip(),
+        },
+    )
+    write_json(
+        repository / "src/GibddExamSimulator.Android/Configuration/client-settings.json",
+        {
+            "supabaseUrl": args.supabase_url.strip(),
+            "supabasePublishableKey": args.supabase_publishable_key.strip(),
+            "gitHubRepository": args.github_repository.strip(),
         },
     )
 

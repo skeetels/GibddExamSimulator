@@ -114,7 +114,7 @@ public sealed class SessionPersistenceTests
     public void LearningProfile_IsOrderIndependentAndDeduplicatesIdenticalSession()
     {
         var first = CreateSession(StudyDeviceKind.WindowsDesktop, isCorrect: false);
-        var second = CreateSession(StudyDeviceKind.MobilePwa, isCorrect: true) with
+        var second = CreateSession(StudyDeviceKind.AndroidApp, isCorrect: true) with
         {
             SessionId = Guid.NewGuid(),
             StartedAtUtc = first.StartedAtUtc.AddHours(1),
@@ -160,7 +160,9 @@ public sealed class SessionPersistenceTests
         {
             Path.Combine(repository, "src", "GibddExamSimulator.App"),
             Path.Combine(repository, "src", "GibddExamSimulator.Sync"),
-            Path.Combine(repository, "src", "GibddExamSimulator.Web")
+            Path.Combine(repository, "src", "GibddExamSimulator.Web"),
+            Path.Combine(repository, "src", "GibddExamSimulator.Mobile.Shared"),
+            Path.Combine(repository, "src", "GibddExamSimulator.Android")
         };
         foreach (var file in clientRoots.SelectMany(root => Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
                      .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}") &&

@@ -3,6 +3,8 @@ obj/
 .vs/
 artifacts/
 publish/
+__pycache__/
+*.py[cod]
 *.user
 *.suo
 .env

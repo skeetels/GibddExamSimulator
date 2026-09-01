@@ -2,7 +2,7 @@ using GibddExamSimulator.Application.StudySessions;
 using GibddExamSimulator.ExamEngine;
 using GibddExamSimulator.Models;
 
-namespace GibddExamSimulator.Web.Services;
+namespace GibddExamSimulator.Mobile.Shared.Services;
 
 public sealed class MobileSessionController
 {
@@ -16,12 +16,14 @@ public sealed class MobileSessionController
     private MobileSessionController(
         Guid sessionId,
         Guid deviceId,
+        StudyDeviceKind deviceKind,
         StudyMode mode,
         DateTimeOffset startedAtUtc,
         ExamEngine.ExamEngine? exam)
     {
         SessionId = sessionId;
         DeviceId = deviceId;
+        DeviceKind = deviceKind;
         Mode = mode;
         StartedAtUtc = startedAtUtc;
         _exam = exam;
@@ -30,11 +32,13 @@ public sealed class MobileSessionController
 
     public Guid SessionId { get; }
     public Guid DeviceId { get; }
+    public StudyDeviceKind DeviceKind { get; }
     public StudyMode Mode { get; }
     public DateTimeOffset StartedAtUtc { get; }
     public bool IsExam => Mode == StudyMode.Exam;
     public bool IsCompleted { get; private set; }
     public bool NeedsSupplementary => _exam?.Session?.Stage == ExamStage.SupplementaryBriefing;
+    public bool HasTrainingFeedback => !IsExam && !IsCompleted && CurrentState?.ConfirmedAnswer.HasValue == true;
     public int CurrentIndex => IsExam ? _exam?.Session?.CurrentQuestionIndex ?? 0 : _trainingIndex;
     public IReadOnlyList<ExamQuestionState> ActiveStates => IsExam
         ? _exam?.Session?.ActiveQuestions ?? []
@@ -58,22 +62,24 @@ public sealed class MobileSessionController
     public static MobileSessionController CreateExam(
         Guid deviceId,
         CandidateProfile candidate,
-        IReadOnlyList<Question> questions)
+        IReadOnlyList<Question> questions,
+        StudyDeviceKind deviceKind = StudyDeviceKind.MobilePwa)
     {
         var engine = new ExamEngine.ExamEngine();
         var session = engine.Start(candidate, questions);
-        return new MobileSessionController(session.Id, deviceId, StudyMode.Exam, session.StartedAtUtc!.Value, engine);
+        return new MobileSessionController(session.Id, deviceId, deviceKind, StudyMode.Exam, session.StartedAtUtc!.Value, engine);
     }
 
     public static MobileSessionController CreateTraining(
         Guid deviceId,
         StudyMode mode,
-        IReadOnlyList<Question> questions)
+        IReadOnlyList<Question> questions,
+        StudyDeviceKind deviceKind = StudyDeviceKind.MobilePwa)
     {
         if (mode == StudyMode.Exam || questions.Count == 0)
             throw new ArgumentException("Training requires a non-empty non-exam question set.", nameof(questions));
         var started = DateTimeOffset.UtcNow;
-        var controller = new MobileSessionController(Guid.NewGuid(), deviceId, mode, started, exam: null);
+        var controller = new MobileSessionController(Guid.NewGuid(), deviceId, deviceKind, mode, started, exam: null);
         controller._trainingStates.AddRange(questions.Select((question, index) => new ExamQuestionState
         {
             Question = question,
@@ -87,14 +93,15 @@ public sealed class MobileSessionController
     public static MobileSessionController Restore(
         Guid deviceId,
         ActiveSessionDraft draft,
-        IReadOnlyDictionary<long, Question> questionById)
+        IReadOnlyDictionary<long, Question> questionById,
+        StudyDeviceKind deviceKind = StudyDeviceKind.MobilePwa)
     {
         if (draft.DeviceId != deviceId)
             throw new InvalidDataException("Черновик принадлежит другой установке приложения.");
         if (draft.Mode != StudyMode.Exam)
         {
             var questions = draft.OrderedQuestionIds.Select(id => questionById[id]).ToArray();
-            var training = new MobileSessionController(draft.DraftId, deviceId, draft.Mode, draft.StartedAtUtc, exam: null);
+            var training = new MobileSessionController(draft.DraftId, deviceId, deviceKind, draft.Mode, draft.StartedAtUtc, exam: null);
             training._trainingStates.AddRange(questions.Select((question, index) => new ExamQuestionState
             {
                 Question = question,
@@ -166,7 +173,7 @@ public sealed class MobileSessionController
             restored.SupplementaryElapsed = stageElapsed;
         var engine = new ExamEngine.ExamEngine();
         engine.Restore(restored, stageElapsed);
-        return new MobileSessionController(restored.Id, deviceId, StudyMode.Exam, draft.StartedAtUtc, engine);
+        return new MobileSessionController(restored.Id, deviceId, deviceKind, StudyMode.Exam, draft.StartedAtUtc, engine);
     }
 
     public bool NavigateTo(int index)
@@ -222,9 +229,14 @@ public sealed class MobileSessionController
             FinishTraining(now);
         else if (_trainingStates.All(item => item.ConfirmedAnswer.HasValue))
             FinishTraining(now);
-        else
-            NavigateTo(FindNextUnansweredTrainingIndex());
         return true;
+    }
+
+    public bool ContinueTraining()
+    {
+        if (!HasTrainingFeedback)
+            return false;
+        return NavigateTo(FindNextUnansweredTrainingIndex());
     }
 
     public void StartSupplementary(IReadOnlyList<Question> questions)
@@ -282,7 +294,7 @@ public sealed class MobileSessionController
             return ExamSessionEnvelopeFactory.Create(
                 _exam.Session,
                 DeviceId,
-                StudyDeviceKind.MobilePwa,
+                DeviceKind,
                 bankVersion,
                 bankSha256,
                 rulesProfile);
@@ -301,7 +313,7 @@ public sealed class MobileSessionController
         {
             SessionId = SessionId,
             DeviceId = DeviceId,
-            DeviceKind = StudyDeviceKind.MobilePwa,
+            DeviceKind = DeviceKind,
             Mode = Mode,
             StartedAtUtc = StartedAtUtc,
             CompletedAtUtc = completedAt,

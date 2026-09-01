@@ -1,90 +1,97 @@
-# Supabase, Telegram, PWA и обновления
+# Supabase, Telegram, PWA и обновления 2.0.1
 
 ## 1. Сначала перевыпустить Telegram token
 
-Token, ранее отправленный в переписке, считается раскрытым. До публикации или передачи сборки отзовите его через BotFather и получите новый. Новый token нельзя помещать в исходники, клиентские JSON, установщик, PWA, GitHub Variables или логи.
+Token, ранее отправленный в переписке, считается раскрытым. Отзовите его через BotFather и получите новый. Не помещайте новый token в Git, client-settings.json, APK, EXE, PWA, GitHub Variables, команды с буквальным значением или логи.
 
 ## 2. Развернуть Supabase
 
-Создайте проект Supabase и установите Supabase CLI. Из корня репозитория выполните:
-
-```powershell
+~~~powershell
 supabase login
 supabase link --project-ref YOUR_PROJECT_REF
 supabase db push
-supabase secrets set TELEGRAM_BOT_TOKEN="NEW_ROTATED_TOKEN"
+~~~
+
+Создайте длинный случайный webhook secret независимо от bot token, затем задайте оба серверных секрета:
+
+~~~powershell
+$env:TELEGRAM_BOT_TOKEN = Read-Host "New Telegram bot token"
+$env:TELEGRAM_WEBHOOK_SECRET = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+supabase secrets set TELEGRAM_BOT_TOKEN="$env:TELEGRAM_BOT_TOKEN" TELEGRAM_WEBHOOK_SECRET="$env:TELEGRAM_WEBHOOK_SECRET"
 supabase functions deploy telegram-report
-```
+supabase functions deploy telegram-bot --no-verify-jwt
+~~~
 
-Edge Function получает `SUPABASE_URL`, publishable/anon key и service-role key из среды Supabase. Вручную переносить service-role key в приложение не нужно и нельзя.
+telegram-report сохраняет обязательную проверку пользовательского JWT. telegram-bot отключает Supabase JWT только потому, что webhook вызывается Telegram; endpoint проверяет заголовок X-Telegram-Bot-Api-Secret-Token в constant time.
 
-В Auth отключите публичную регистрацию. Для друга создайте пользователя через Dashboard → Authentication → Users → Add user и передайте ему только email и временный пароль. Пароль клиент не сохраняет; refresh token Windows защищается DPAPI.
+В Supabase Auth отключите публичную регистрацию. Создайте кандидатов через Dashboard → Authentication → Users. Пароль клиент не сохраняет.
 
-Миграции создают append-only `study_sessions`, включают и принудительно применяют RLS, разрешают роли `authenticated` только `SELECT` и `INSERT` своих строк и запрещают клиентские `UPDATE`/`DELETE`. Таблицы Telegram и функция выдачи lock доступны только `service_role`.
+## 3. Зарегистрировать Telegram webhook
 
-## 3. Подключить клиентов
+Подставьте PROJECT_REF, оставив token и secret только в переменных текущего процесса:
 
-Возьмите Project URL и publishable key в настройках API проекта. Это публичные идентификаторы клиента, но не пользовательские учётные данные.
+~~~powershell
+$webhookBody = @{
+  url = "https://PROJECT_REF.supabase.co/functions/v1/telegram-bot"
+  secret_token = $env:TELEGRAM_WEBHOOK_SECRET
+  allowed_updates = @("message")
+  drop_pending_updates = $true
+} | ConvertTo-Json
+Invoke-RestMethod \
+  -Method Post \
+  -Uri "https://api.telegram.org/bot$env:TELEGRAM_BOT_TOKEN/setWebhook" \
+  -ContentType "application/json" \
+  -Body $webhookBody
+~~~
 
-```powershell
-python .\tools\configure_deployment.py \`
-  --supabase-url "https://PROJECT.supabase.co" \`
-  --supabase-publishable-key "PUBLISHABLE_KEY" \`
-  --github-repository "OWNER/REPOSITORY" \`
+Откройте бота из личного аккаунта @skeetels и один раз отправьте /start. Webhook сохранит числовой private chat id в закрытой таблице. Другие usernames, группы и каналы игнорируются. В клиентах нет Chat ID и выбора другого бота.
+
+Доступны команды /stats, /mistakes, /today, /last и /help. После каждого завершённого и синхронизированного экзамена отчёт отправляется автоматически, без кнопки. Временная ошибка Telegram не отменяет экзамен и приводит к retry.
+
+## 4. Подключить Windows, Android и PWA
+
+~~~powershell
+python .\tools\configure_deployment.py \
+  --supabase-url "https://PROJECT_REF.supabase.co" \
+  --supabase-publishable-key "PUBLISHABLE_KEY" \
+  --github-repository "OWNER/REPOSITORY" \
   --pages-base "/"
-```
+~~~
 
-Скрипт обновляет оба `client-settings.json`. Примеры без реальных значений находятся рядом с ними как `client-settings.example.json`.
+Скрипт меняет только публичные client settings трёх клиентов. Service role и bot token получает Edge Functions runtime автоматически.
 
-## 4. Telegram только для @skeetels
+## 5. GitHub Pages
 
-Получатель жёстко задан сервером как `@skeetels`; поля Chat ID и выбора бота в клиентах отсутствуют. После развёртывания нового token:
+Repository Variables:
 
-1. Откройте нового бота из личного аккаунта `@skeetels`.
-2. Отправьте `/start` до первого экзаменационного отчёта.
-3. Если у этого бота ранее был webhook, отключите его, чтобы Edge Function могла получить личный `/start` через `getUpdates`.
-
-При первой отправке функция находит внутренний числовой ID только личного чата с username `skeetels`, сохраняет его в закрытой серверной таблице и больше не ищет получателя. Другие пользователи, группы и каналы игнорируются.
-
-После завершения экзамена клиент сначала атомарно сохраняет сессию локально, затем синхронизирует её и автоматически вызывает Edge Function. Отдельной кнопки отправки нет. Отчёт содержит:
-
-- результат, дату и длительность;
-- пометку `ПК · XXXXXX` или `Телефон / PWA · XXXXXX`;
-- ошибки текущего экзамена и время каждого ответа;
-- самые проблемные билеты и тематические блоки по общей истории;
-- долю ошибок и среднее время.
-
-Одна сессия отправляется не более одного раза: серверный delivery ledger и lock делают операцию идемпотентной. Ошибка сети, отсутствие `/start` или временная занятость не удаляют outbox; отправка повторяется при следующей синхронизации.
-
-## 5. GitHub Pages для телефона
-
-В публичном GitHub-репозитории задайте Repository Variables:
-
-```text
+~~~text
 SUPABASE_URL
 SUPABASE_PUBLISHABLE_KEY
-PAGES_CUSTOM_DOMAIN        # необязательно
-```
+PAGES_CUSTOM_DOMAIN
+~~~
 
-Settings → Pages → Source установите `GitHub Actions`. Workflow `pages.yml` сам рассчитывает base path вида `/REPOSITORY_NAME/`, создаёт SPA fallback и публикует production PWA. После первого открытия установите её через меню браузера «На экран Домой» / «Установить приложение».
+Settings → Pages → Source: GitHub Actions. pages.yml рассчитывает base path, создаёт SPA fallback и публикует PWA. PWA предназначена для браузера/iPhone и не заменяет Android APK.
 
-## 6. Windows-обновления
+## 6. Android production signing
 
-Поле `gitHubRepository` в desktop `client-settings.json` должно содержать `OWNER/REPOSITORY`. Приложение при запуске читает только публичный latest release.
+Repository Secrets:
 
-Для выпуска новой версии:
+~~~text
+ANDROID_KEYSTORE_BASE64
+ANDROID_KEY_ALIAS
+ANDROID_KEYSTORE_PASSWORD
+ANDROID_KEY_PASSWORD
+~~~
 
-```powershell
+Без них release.yml всё равно создаст installable DEV-SIGNED APK с явной пометкой. Для последующих обновлений поверх установленного APK нужен постоянный production keystore; подробности в docs/ANDROID_SIGNING.md.
+
+## 7. Выпуск и обновления
+
+~~~powershell
 git tag v2.0.1
 git push origin v2.0.1
-```
+~~~
 
-`release.yml` на Windows:
+release.yml собирает Windows installer, Android ARM64 APK, PWA, source, update-manifest.json и SHA256SUMS.txt. Windows загружает installer только по HTTPS и запускает после совпадения SHA-256. Android предлагает открыть APK asset более новой версии. PWA обновляется через service worker.
 
-- запускает валидацию и тесты;
-- собирает self-contained installer;
-- вычисляет SHA-256;
-- создаёт совместимый `update-manifest.json`;
-- прикладывает installer, checksum и PWA ZIP к GitHub Release встроенным `GITHUB_TOKEN`.
-
-На компьютере кандидата новая версия показывается как предложение. Установка начинается только после подтверждения, только по HTTPS и только после совпадения SHA-256. GitHub PAT в приложении не используется.
+После запуска workflow откройте Actions и убедитесь, что все jobs зелёные. Локальный YAML без GitHub run не является подтверждением.

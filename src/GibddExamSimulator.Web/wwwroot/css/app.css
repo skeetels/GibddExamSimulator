@@ -140,13 +140,22 @@ progress { width: 100%; accent-color: var(--teal); }
 .question-card h1 { font-size: 1.26rem; line-height: 1.35; margin: 9px 0 0; }
 .question-card h1:focus { outline: none; }
 .question-meta { color: var(--muted); font-size: .76rem; font-weight: 700; }
+.question-image-button { display: block; width: 100%; min-height: 0; margin-top: 16px; padding: 0; background: #f3f5f6; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
 .question-image { width: 100%; max-height: 330px; object-fit: contain; margin-top: 16px; border-radius: 7px; }
-.answer-list { display: grid; gap: 9px; padding: 14px 12px 86px; }
+.question-image-button .question-image { display: block; margin-top: 0; }
+.answer-list { display: grid; gap: 9px; padding: 14px 12px; }
 .answer-list button { display: grid; grid-template-columns: 34px 1fr; gap: 9px; align-items: start; text-align: left; background: white; border: 1px solid #a9b1b8; padding: 13px; font-weight: 400; }
 .answer-list button > span { width: 27px; height: 27px; border: 1px solid var(--navy); border-radius: 50%; display: grid; place-items: center; font-weight: 800; }
 .answer-list button > strong { font-weight: 500; line-height: 1.4; }
 .answer-list button.selected { background: #fff6d5; border: 2px solid #a87900; padding: 12px; }
-.confirm { position: sticky; bottom: 78px; margin: 4px 12px 16px; width: calc(100% - 24px); box-shadow: 0 5px 18px rgb(0 0 0 / 18%); }
+.confirm { position: static; margin: 4px 12px max(18px, env(safe-area-inset-bottom)); width: calc(100% - 24px); box-shadow: 0 5px 18px rgb(0 0 0 / 14%); }
+.training-feedback { margin: 0 12px 18px; position: relative; z-index: 5; padding: 16px; border: 1px solid; border-radius: 10px; background: white; }
+.training-feedback.correct { border-color: #4f8a75; background: #e7f4f1; }
+.training-feedback.incorrect { border-color: #bf6d68; background: #fcebea; }
+.training-feedback > strong { display: block; margin-bottom: 8px; font-size: 1.15rem; }
+.training-feedback p { color: var(--text); margin-bottom: 12px; }
+.image-lightbox { position: fixed; inset: 0; z-index: 100; width: 100%; height: 100%; min-height: 100%; padding: max(16px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); border-radius: 0; background: rgb(0 0 0 / 88%); display: grid; place-items: center; }
+.image-lightbox img { max-width: 100%; max-height: 100%; object-fit: contain; }
 
 .supplementary-card { margin-top: 9dvh; text-align: center; border-top: 5px solid var(--warning); padding: 28px 22px; }
 .mobile-result { text-align: center; padding: 6dvh 6px 24px; }
@@ -164,6 +173,29 @@ progress { width: 100%; accent-color: var(--teal); }
 
 #blazor-error-ui { background: #fff1b8; bottom: 0; box-shadow: 0 -1px 4px rgb(0 0 0 / 20%); display: none; left: 0; padding: .8rem 1.2rem; position: fixed; width: 100%; z-index: 1000; }
 #blazor-error-ui .dismiss { cursor: pointer; position: absolute; right: .75rem; top: .5rem; }
+
+.leave-confirmation-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1200;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: rgba(3, 19, 31, .68);
+}
+
+.leave-confirmation {
+    width: min(100%, 480px);
+    border-radius: 16px;
+    padding: 24px;
+    background: #fff;
+    box-shadow: 0 18px 60px rgba(0, 0, 0, .28);
+}
+
+.leave-confirmation h2 { margin: 0 0 10px; }
+.leave-confirmation p { margin: 0 0 22px; color: var(--muted); }
+.leave-confirmation > div { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.leave-confirmation .danger { background: var(--danger); color: #fff; }
 .loading-progress { width: 8rem; height: 8rem; margin: 28vh auto 1rem; display: block; }
 .pwa-update-banner { position: fixed; z-index: 50; left: 50%; bottom: calc(78px + env(safe-area-inset-bottom)); transform: translateX(-50%); width: min(calc(100% - 24px), 560px); display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid #85bdb7; border-radius: 11px; background: #e7f4f1; color: #004d45; box-shadow: 0 8px 26px rgb(0 0 0 / 22%); }
 .pwa-update-banner button { min-height: 40px; padding: 8px 14px; background: var(--navy); color: white; }
