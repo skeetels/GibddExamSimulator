@@ -1,7 +1,7 @@
 begin;
 
 create extension if not exists pgtap with schema extensions;
-select plan(27);
+select plan(34);
 
 select has_table('public', 'study_sessions', 'study_sessions exists');
 select has_table('public', 'learning_profiles', 'learning_profiles exists');
@@ -43,6 +43,34 @@ select ok(
 select ok(
     not has_function_privilege('anon', 'public.read_device_pairing_status(uuid)', 'EXECUTE'),
     'unauthenticated callers cannot invoke pairing status');
+select ok(
+    has_table_privilege('service_role', 'public.study_sessions', 'SELECT'),
+    'Telegram server can read report source sessions');
+select ok(
+    has_table_privilege('service_role', 'public.learning_profiles', 'UPDATE'),
+    'device server can update profile revisions');
+select ok(
+    has_table_privilege('service_role', 'public.device_memberships', 'UPDATE'),
+    'device server can revoke memberships');
+select ok(
+    has_table_privilege('service_role', 'public.telegram_private_recipients', 'SELECT')
+    and has_table_privilege('service_role', 'public.telegram_private_recipients', 'INSERT')
+    and has_table_privilege('service_role', 'public.telegram_private_recipients', 'UPDATE'),
+    'Telegram server can persist the fixed recipient');
+select ok(
+    has_table_privilege('service_role', 'public.telegram_report_deliveries', 'SELECT')
+    and has_table_privilege('service_role', 'public.telegram_report_deliveries', 'UPDATE'),
+    'Telegram worker can drain the private delivery queue');
+select ok(
+    has_table_privilege('service_role', 'public.telegram_profile_links', 'SELECT')
+    and has_table_privilege('service_role', 'public.telegram_profile_links', 'INSERT')
+    and has_table_privilege('service_role', 'public.telegram_profile_links', 'UPDATE'),
+    'Telegram bot can persist profile links');
+select ok(
+    has_table_privilege('service_role', 'public.telegram_link_tokens', 'SELECT')
+    and has_table_privilege('service_role', 'public.telegram_link_tokens', 'INSERT')
+    and has_table_privilege('service_role', 'public.telegram_link_tokens', 'UPDATE'),
+    'Telegram server can create and consume one-time link tokens');
 
 insert into auth.users (id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
 values
