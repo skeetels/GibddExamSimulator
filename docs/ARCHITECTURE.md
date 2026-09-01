@@ -1,34 +1,39 @@
-# Архитектура 2.0.1
+# Архитектура 2.0.2
 
-## Состав решения
+## Компоненты
 
-- GibddExamSimulator.Core — правила экзамена, выбор вопросов и доменные модели.
-- GibddExamSimulator.Application — канонические учебные сессии, профиль ошибок, планы тренировок и координатор синхронизации.
-- GibddExamSimulator.Infrastructure — SQLite-хранилище, импорт/проверка банка и Windows updater.
-- GibddExamSimulator.Sync — Supabase Auth, REST upload/pull и автоматический вызов Telegram Edge Function.
-- GibddExamSimulator.App — WPF-клиент Windows и отдельное окно ExamTerminalWindow.
-- GibddExamSimulator.Mobile.Shared — общий Razor UI, состояние и контроллер сессии для Android и PWA.
-- GibddExamSimulator.Android — .NET MAUI Blazor Hybrid host, пакетные assets, SQLite и SecureStorage.
-- GibddExamSimulator.Web — Blazor WebAssembly host, IndexedDB, service worker и web-адаптеры.
+- `Core` — правила экзамена, модель вопроса и адаптивный выбор.
+- `Application` — неизменяемая учебная сессия, профиль ошибок, outbox, sync/device contracts.
+- `Infrastructure` — SQLite, миграция legacy-истории, DPAPI и Windows updater.
+- `Sync` — скрытая anonymous Auth, versioned `device-api` и push/pull.
+- `App` — современная домашняя страница Windows и изолированный fullscreen legacy-терминал.
+- `Mobile.Shared` — общий адаптивный Razor UI и учебная логика Android/PWA.
+- `Android` — нативный .NET MAUI host, камера ZXing, SQLite и Android SecureStorage/Keystore.
+- `Web` — Blazor WebAssembly PWA, IndexedDB, WebCrypto, камера `getUserMedia` и service worker.
+- `supabase` — Postgres/RLS, atomic pairing RPC, Edge API и Telegram workers.
+
+## Скрытая идентификация
+
+Каждая установка создаёт случайный `deviceId`, не связанный с железом. При доступной сети клиент без UI вызывает anonymous Supabase signup и получает отдельный `auth.uid()`. Refresh token хранится через DPAPI на Windows, SecureStorage/Keystore на Android и AES-256-GCM с non-exportable WebCrypto key в PWA.
+
+`learning_profile` принадлежит не login-аккаунту, а группе активных `device_memberships`. Новая anonymous identity сначала имеет собственный профиль. Одноразовый QR атомарно переносит её membership в профиль компьютера и объединяет завершённые локальные сессии. Email/password в новом UI отсутствуют.
 
 ## Поток данных
 
-Каждый клиент создаёт StudySessionEnvelope одинаковой схемы. В нём есть случайный deviceId, тип WindowsDesktop, AndroidApp или MobilePwa, режим, банк/правила, порядок вопросов, ответы, время и итог. Перед записью вычисляется канонический SHA-256.
+Завершение экзамена/тренировки одной локальной транзакцией сохраняет `StudySessionEnvelope` и outbox, затем удаляет draft. Сессия append-only, имеет UUID и SHA-256 канонического payload. API проверяет membership, вставляет запись идемпотентно и назначает `server_seq`. Pull использует курсор и атомарно применяет страницу вместе с новой revision.
 
-Завершение сессии сначала одной локальной транзакцией сохраняет запись и outbox. SyncCoordinator отправляет outbox в append-only таблицу Supabase, затем получает страницы чужих устройств по server_seq. Повтор с тем же session_id и тем же payload hash считается успехом; другой hash для того же id считается конфликтом. Курсор меняется только в транзакции применения принятой страницы.
+Windows, Android и PWA пересчитывают учебный профиль из общей истории. Поэтому ошибка на телефоне влияет на подбор следующего ПК-экзамена, а ошибка Windows появляется в мобильной `Работе над ошибками`.
 
-После успешного upload экзамена Sync вызывает telegram-report с пользовательским JWT. Сервер проверяет владельца сессии и доставляет отчёт идемпотентно. Ошибка Telegram оставляет локальный outbox для повтора и не меняет экзаменационный результат.
+## Границы безопасности
 
-## Изоляция интерфейсов
+Клиент получает только HTTPS URLs и Supabase publishable key. Pairing secret живёт пять минут, передаётся только в QR и в базе хранится как SHA-256. Service-role, bot token, webhook secret, signing key и GitHub write credential находятся только в deployment secrets. RLS запрещает чтение чужого `profile_id`; direct client UPDATE/DELETE завершённых сессий отсутствуют.
 
-Современное главное окно Windows и legacy-терминал намеренно разделены. ExamTerminalWindow не содержит WebView, открывается borderless fullscreen и подключает только Resources/LegacyExamTheme.xaml. Результат и просмотр ошибок используют отдельные WPF views в той же плоской системе.
+Telegram не является транспортом синхронизации. После server-side insert экзамена delivery ledger инициирует отдельный идемпотентный отчёт только фиксированному владельцу.
 
-Android и PWA повторно используют общий Razor UI, но platform adapters различаются: Android читает банк из APK, хранит данные в SQLite и refresh token в SecureStorage; PWA использует IndexedDB и service worker.
+## Интерфейс Windows
 
-## Обновления
+Главная страница 2.x содержит QR, прогресс, устройства, Telegram и обновления. Сам экзамен запускается в отдельном `ExamTerminalWindow`, который подключает только `LegacyExamTheme.xaml`; современные карточки и скругления туда не попадают. Эталон и матрица разрешений описаны в `DESKTOP_EXAM_VISUAL_CONTRACT.md`.
 
-Windows читает latest GitHub Release, загружает update-manifest.json либо asset metadata, требует HTTPS и проверяет SHA-256 установщика. Android проверяет latest Release и открывает APK новой версии после явного действия пользователя. PWA получает обновление service worker. Репозиторий настраивается публичным полем gitHubRepository; приватные ключи клиентам не нужны.
+## Deployment
 
-## Банк
-
-Единственная копия банка — assets/question-bank/ab. Она включается во все три outputs. Валидатор фиксирует 800 вопросов, 40 билетов, 160 блоков, 548 JPEG, сигнатуры JPEG и SHA-256 JSON. Категории C/D не входят в продукт.
+`tools/configure_deployment.py` создаёт один канонический public contract и копирует его в три клиента. SHA-256 считается без поля `configSha256`. Release targets вызывают `validate_deployment_config.py`; пустые значения, placeholder, другой repo, HTTP URL или credential-shaped content останавливают сборку. Backend, Pages и Release разнесены по отдельным workflows.

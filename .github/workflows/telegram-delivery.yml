@@ -1,0 +1,32 @@
+name: Retry Telegram report queue
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: telegram-delivery-worker
+  cancel-in-progress: false
+
+jobs:
+  deliver:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Process pending and failed reports
+        shell: bash
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          TELEGRAM_DELIVERY_WORKER_SECRET: ${{ secrets.TELEGRAM_DELIVERY_WORKER_SECRET }}
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_URL}"
+          test -n "${TELEGRAM_DELIVERY_WORKER_SECRET}"
+          response="$(curl --fail --silent --show-error \
+            -X POST \
+            -H "x-telegram-worker-secret: ${TELEGRAM_DELIVERY_WORKER_SECRET}" \
+            "${SUPABASE_URL%/}/functions/v1/telegram-delivery-worker")"
+          python -c 'import json,sys; p=json.loads(sys.argv[1]); assert p.get("ok") is True' "${response}"

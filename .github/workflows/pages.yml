@@ -14,39 +14,65 @@ concurrency:
   group: pages
   cancel-in-progress: true
 
+env:
+  DEPLOYMENT_ENVIRONMENT_ID: ${{ vars.DEPLOYMENT_ENVIRONMENT_ID }}
+  SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+  SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
+  SYNC_API_BASE_URL: ${{ vars.SYNC_API_BASE_URL }}
+  TELEGRAM_BOT_USERNAME: ${{ vars.TELEGRAM_BOT_USERNAME }}
+  PAGES_URL: ${{ vars.PAGES_URL }}
+  CUSTOM_DOMAIN: ${{ vars.PAGES_CUSTOM_DOMAIN }}
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      pages_url: ${{ steps.metadata.outputs.pages_url }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
       - uses: actions/configure-pages@v5
-      - name: Generate public configuration
+      - name: Resolve and validate public configuration
+        id: metadata
         shell: bash
-        env:
-          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
-          SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
-          CUSTOM_DOMAIN: ${{ vars.PAGES_CUSTOM_DOMAIN }}
         run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY%%/*}"
           repository_name="${GITHUB_REPOSITORY#*/}"
+          pages_url="${PAGES_URL:-https://${owner}.github.io/${repository_name}}"
           pages_base="/${repository_name}/"
           if [[ -n "${CUSTOM_DOMAIN}" ]]; then pages_base="/"; fi
+          echo "pages_url=${pages_url}" >> "${GITHUB_OUTPUT}"
           python tools/configure_deployment.py \
+            --environment-id "${DEPLOYMENT_ENVIRONMENT_ID}" \
             --supabase-url "${SUPABASE_URL}" \
             --supabase-publishable-key "${SUPABASE_PUBLISHABLE_KEY}" \
+            --sync-api-base-url "${SYNC_API_BASE_URL}" \
             --github-repository "${GITHUB_REPOSITORY}" \
+            --pages-url "${pages_url}" \
+            --telegram-bot-username "${TELEGRAM_BOT_USERNAME}" \
             --pages-base "${pages_base}"
-      - run: dotnet publish src/GibddExamSimulator.Web/GibddExamSimulator.Web.csproj -c Release -o publish/pwa
-      - name: Add SPA fallback and optional custom domain
+          python tools/validate_deployment_config.py \
+            --config build/generated/deployment-config.json --compare-clients --health
+      - name: Publish offline-first PWA
+        run: dotnet publish src/GibddExamSimulator.Web/GibddExamSimulator.Web.csproj -c Release -o publish/pwa
+      - name: Add SPA fallback and verify pairing assets
         shell: bash
-        env:
-          CUSTOM_DOMAIN: ${{ vars.PAGES_CUSTOM_DOMAIN }}
         run: |
+          set -euo pipefail
           cp publish/pwa/wwwroot/index.html publish/pwa/wwwroot/404.html
           touch publish/pwa/wwwroot/.nojekyll
           if [[ -n "${CUSTOM_DOMAIN}" ]]; then printf '%s\n' "${CUSTOM_DOMAIN}" > publish/pwa/wwwroot/CNAME; fi
+          test -f publish/pwa/wwwroot/js/qr-scanner.js
+          test -f publish/pwa/wwwroot/service-worker.js
+          test -f publish/pwa/wwwroot/manifest.webmanifest
+          cmp build/generated/deployment-config.json publish/pwa/wwwroot/client-settings.json
+          ! grep -R -E -i 'YOUR_|example\.com|localhost|Настроить GitHub|type="password"' publish/pwa/wwwroot
       - uses: actions/upload-pages-artifact@v3
         with:
           path: publish/pwa/wwwroot
@@ -61,3 +87,17 @@ jobs:
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4
+      - name: Smoke-test published camera onboarding
+        shell: bash
+        env:
+          EXPECTED_PAGES_URL: ${{ needs.build.outputs.pages_url }}
+        run: |
+          set -euo pipefail
+          for attempt in {1..12}; do
+            if curl --fail --silent --show-error --location "${EXPECTED_PAGES_URL%/}/" -o page.html; then
+              grep -q 'js/qr-scanner.js' page.html
+              exit 0
+            fi
+            sleep 5
+          done
+          exit 1

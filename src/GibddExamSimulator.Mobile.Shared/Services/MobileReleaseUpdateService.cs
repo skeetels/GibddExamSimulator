@@ -23,7 +23,7 @@ public sealed partial class MobileReleaseUpdateService(HttpClient? httpClient = 
             HttpMethod.Get,
             $"https://api.github.com/repos/{repository}/releases/latest");
         request.Headers.Accept.ParseAdd("application/vnd.github+json");
-        request.Headers.UserAgent.ParseAdd("GibddExamSimulator-Android-Updater/2.0.1");
+        request.Headers.UserAgent.ParseAdd("GibddExamSimulator-Android-Updater/2.0.2");
         request.Headers.TryAddWithoutValidation("X-GitHub-Api-Version", "2022-11-28");
         using var response = await _httpClient.SendAsync(request, cancellationToken);
         if (response.StatusCode == HttpStatusCode.NotFound)

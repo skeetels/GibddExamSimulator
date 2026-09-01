@@ -1,13 +1,15 @@
 [CmdletBinding()]
 param(
-    [string] $Version = '2.0.1',
+    [string] $Version = '2.0.2',
     [Parameter(Mandatory)]
     [string] $PwaWwwRoot,
     [string] $OutputDirectory,
     [string] $AndroidApk,
     [switch] $AndroidDevSigned,
     [string] $UpdateManifest,
-    [string] $VisualComparison
+    [string] $VisualComparison,
+    [string] $DeploymentConfig,
+    [string] $PairingEvidence
 )
 
 Set-StrictMode -Version Latest
@@ -21,7 +23,7 @@ if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
 $OutputDirectory = [IO.Path]::GetFullPath($OutputDirectory)
 $PwaWwwRoot = [IO.Path]::GetFullPath($PwaWwwRoot)
 
-foreach ($optionalInput in @($AndroidApk, $UpdateManifest, $VisualComparison)) {
+foreach ($optionalInput in @($AndroidApk, $UpdateManifest, $VisualComparison, $DeploymentConfig, $PairingEvidence)) {
     if (-not [string]::IsNullOrWhiteSpace($optionalInput) -and
         -not (Test-Path -LiteralPath $optionalInput -PathType Leaf)) {
         throw "Optional release artifact was not found: $optionalInput"
@@ -82,7 +84,6 @@ finally {
 }
 
 Copy-Item -LiteralPath (Join-Path $projectRoot 'README.md') -Destination (Join-Path $OutputDirectory "README-$Version.md")
-Copy-Item -LiteralPath (Join-Path $projectRoot 'NETWORK_SETUP.md') -Destination (Join-Path $OutputDirectory "NETWORK_SETUP-$Version.md")
 Copy-Item -LiteralPath (Join-Path $projectRoot 'assets\branding\app-icon-1024.png') -Destination (Join-Path $OutputDirectory "GibddExamSimulator-Logo-$Version.png")
 
 if (-not [string]::IsNullOrWhiteSpace($AndroidApk)) {
@@ -113,6 +114,14 @@ if (-not [string]::IsNullOrWhiteSpace($VisualComparison)) {
     }
 }
 
+if (-not [string]::IsNullOrWhiteSpace($DeploymentConfig)) {
+    Copy-Item -LiteralPath $DeploymentConfig -Destination (Join-Path $OutputDirectory 'deployment-config.json')
+}
+
+if (-not [string]::IsNullOrWhiteSpace($PairingEvidence)) {
+    Copy-Item -LiteralPath $PairingEvidence -Destination (Join-Path $OutputDirectory 'pairing-e2e-evidence.zip')
+}
+
 $artifacts = Get-ChildItem -LiteralPath $OutputDirectory -File | Where-Object {
     $_.Name -in @(
         "GibddExamSimulator-Setup-$Version-win-x64.exe",
@@ -122,7 +131,9 @@ $artifacts = Get-ChildItem -LiteralPath $OutputDirectory -File | Where-Object {
         "GibddExamSimulator-$Version-android.apk",
         "GibddExamSimulator-$Version-android-DEV-SIGNED.apk",
         'update-manifest.json',
-        'visual-comparison.zip')
+        'visual-comparison.zip',
+        'deployment-config.json',
+        'pairing-e2e-evidence.zip')
 } | Sort-Object Name
 
 $checksumPath = Join-Path $OutputDirectory 'SHA256SUMS.txt'

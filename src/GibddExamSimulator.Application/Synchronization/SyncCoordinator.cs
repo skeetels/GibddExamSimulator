@@ -49,7 +49,7 @@ public sealed class SyncCoordinator
     {
         var auth = await _authStore.LoadAsync(cancellationToken);
         if (auth is null)
-            return new SyncResult(SyncResultStatus.NotAuthenticated, "Войдите в аккаунт для синхронизации.");
+            return new SyncResult(SyncResultStatus.NotAuthenticated, "Связь с сервисом ещё не подготовлена.");
 
         try
         {
@@ -69,7 +69,25 @@ public sealed class SyncCoordinator
 
                 foreach (var item in pending.OrderBy(item => item.Session.CompletedAtUtc))
                 {
-                    var result = await _remote.UploadAsync(auth, item.Session, cancellationToken);
+                    UploadResult result;
+                    try
+                    {
+                        result = await _remote.UploadAsync(auth, item.Session, cancellationToken);
+                    }
+                    catch (HttpRequestException)
+                    {
+                        await _local.MarkOutboxFailedAsync(
+                            auth.UserId,
+                            item.SessionId,
+                            item.AttemptCount,
+                            "Сеть недоступна. Повтор запланирован автоматически.",
+                            now.Add(RetryDelay(item.SessionId, item.AttemptCount)),
+                            cancellationToken);
+                        return new SyncResult(
+                            SyncResultStatus.Offline,
+                            "Офлайн — результат будет отправлен позже.",
+                            uploaded);
+                    }
                     if (result.Disposition == UploadDisposition.IntegrityConflict)
                     {
                         await _local.MarkOutboxFailedAsync(
@@ -129,7 +147,7 @@ public sealed class SyncCoordinator
         {
             return new SyncResult(
                 SyncResultStatus.Offline,
-                "Нет сети. Данные сохранены на устройстве и синхронизируются позже.");
+                "Офлайн — результат будет отправлен позже.");
         }
         catch (TaskCanceledException)
         {
@@ -137,5 +155,14 @@ public sealed class SyncCoordinator
                 SyncResultStatus.Offline,
                 "Сервер не ответил вовремя. Данные сохранены на устройстве.");
         }
+    }
+
+    internal static TimeSpan RetryDelay(Guid sessionId, int previousAttemptCount)
+    {
+        var exponent = Math.Clamp(previousAttemptCount, 0, 8);
+        var baseSeconds = Math.Min(900, 5 * (1 << exponent));
+        var bytes = sessionId.ToByteArray();
+        var jitterPercent = (bytes[0] % 41) - 20;
+        return TimeSpan.FromSeconds(Math.Max(3, baseSeconds * (100 + jitterPercent) / 100d));
     }
 }

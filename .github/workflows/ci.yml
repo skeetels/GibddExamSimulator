@@ -7,6 +7,14 @@ on:
 permissions:
   contents: read
 
+env:
+  DEPLOYMENT_ENVIRONMENT_ID: ${{ vars.DEPLOYMENT_ENVIRONMENT_ID }}
+  SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+  SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
+  SYNC_API_BASE_URL: ${{ vars.SYNC_API_BASE_URL }}
+  TELEGRAM_BOT_USERNAME: ${{ vars.TELEGRAM_BOT_USERNAME }}
+  PAGES_URL: ${{ vars.PAGES_URL }}
+
 jobs:
   test-linux:
     runs-on: ubuntu-latest
@@ -20,6 +28,24 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+      - name: Generate and validate the immutable production contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY%%/*}"
+          repository_name="${GITHUB_REPOSITORY#*/}"
+          pages_url="${PAGES_URL:-https://${owner}.github.io/${repository_name}}"
+          python tools/configure_deployment.py \
+            --environment-id "${DEPLOYMENT_ENVIRONMENT_ID}" \
+            --supabase-url "${SUPABASE_URL}" \
+            --supabase-publishable-key "${SUPABASE_PUBLISHABLE_KEY}" \
+            --sync-api-base-url "${SYNC_API_BASE_URL}" \
+            --github-repository "${GITHUB_REPOSITORY}" \
+            --pages-url "${pages_url}" \
+            --telegram-bot-username "${TELEGRAM_BOT_USERNAME}" \
+            --pages-base "/${repository_name}/"
+          python tools/validate_deployment_config.py \
+            --config build/generated/deployment-config.json --compare-clients --health
       - name: Validate AB bank and scan source
         run: |
           python tools/build_ab_question_bank.py --validate-only
@@ -30,9 +56,9 @@ jobs:
           dotnet restore tests/GibddExamSimulator.Tests/GibddExamSimulator.Tests.csproj
           dotnet restore tests/GibddExamSimulator.Sync.Tests/GibddExamSimulator.Sync.Tests.csproj
           dotnet restore tests/GibddExamSimulator.Web.Tests/GibddExamSimulator.Web.Tests.csproj
-      - name: Build cross-platform projects
+      - name: Build Web/PWA
         run: dotnet build src/GibddExamSimulator.Web/GibddExamSimulator.Web.csproj -c Release --no-restore -warnaserror
-      - name: Test
+      - name: Unit and integration tests
         run: |
           dotnet test tests/GibddExamSimulator.Tests/GibddExamSimulator.Tests.csproj -c Release --no-restore --logger "trx;LogFileName=core.trx"
           dotnet test tests/GibddExamSimulator.Sync.Tests/GibddExamSimulator.Sync.Tests.csproj -c Release --no-restore --logger "trx;LogFileName=sync.trx"
@@ -44,34 +70,38 @@ jobs:
           name: failed-test-results-linux
           path: '**/TestResults/*.trx'
 
-  edge-function:
+  edge-functions:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.9.6
-      - name: Check Telegram Edge Functions
+      - name: Format, lint, type-check and test Edge Functions
         shell: bash
         run: |
           set -euo pipefail
-          for function_name in telegram-report telegram-bot; do
+          for function_name in device-api telegram-report telegram-bot telegram-delivery-worker; do
             pushd "supabase/functions/${function_name}"
             deno fmt --check index.ts index.test.ts
             deno lint index.ts index.test.ts
             deno check index.ts index.test.ts
-            deno test index.test.ts
+            if [[ "${function_name}" == "device-api" ]]; then
+              deno test --allow-env index.test.ts
+            else
+              deno test index.test.ts
+            fi
             popd
           done
 
-  rls:
+  rls-and-pairing-database:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: supabase/setup-cli@v1
         with:
           version: latest
-      - name: Start disposable Supabase and run database tests
+      - name: Start disposable Supabase and run RLS/pairing tests
         run: |
           supabase start
           supabase test db
@@ -88,31 +118,52 @@ jobs:
           global-json-file: global.json
           cache: true
           cache-dependency-path: '**/*.csproj'
-      - name: Restore Windows project
-        run: dotnet restore src/GibddExamSimulator.App/GibddExamSimulator.App.csproj
-      - name: Build Windows application
-        run: dotnet build src/GibddExamSimulator.App/GibddExamSimulator.App.csproj -c Release --no-restore -warnaserror
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Generate production contract
+        shell: pwsh
+        run: |
+          $parts = $env:GITHUB_REPOSITORY.Split('/')
+          $pagesUrl = if ([string]::IsNullOrWhiteSpace($env:PAGES_URL)) { "https://$($parts[0]).github.io/$($parts[1])" } else { $env:PAGES_URL }
+          python tools/configure_deployment.py --environment-id $env:DEPLOYMENT_ENVIRONMENT_ID --supabase-url $env:SUPABASE_URL --supabase-publishable-key $env:SUPABASE_PUBLISHABLE_KEY --sync-api-base-url $env:SYNC_API_BASE_URL --github-repository $env:GITHUB_REPOSITORY --pages-url $pagesUrl --telegram-bot-username $env:TELEGRAM_BOT_USERNAME --pages-base "/$($parts[1])/"
+      - name: Restore and build Windows visual terminal
+        run: |
+          dotnet restore src/GibddExamSimulator.App/GibddExamSimulator.App.csproj
+          dotnet build src/GibddExamSimulator.App/GibddExamSimulator.App.csproj -c Release --no-restore -warnaserror
 
-  android-build:
+  android-installable-smoke:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
+      - name: Generate production contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY%%/*}"
+          repository_name="${GITHUB_REPOSITORY#*/}"
+          pages_url="${PAGES_URL:-https://${owner}.github.io/${repository_name}}"
+          python tools/configure_deployment.py --environment-id "${DEPLOYMENT_ENVIRONMENT_ID}" --supabase-url "${SUPABASE_URL}" --supabase-publishable-key "${SUPABASE_PUBLISHABLE_KEY}" --sync-api-base-url "${SYNC_API_BASE_URL}" --github-repository "${GITHUB_REPOSITORY}" --pages-url "${pages_url}" --telegram-bot-username "${TELEGRAM_BOT_USERNAME}" --pages-base "/${repository_name}/"
       - name: Install Android build dependencies
         shell: bash
         run: |
           yes | sdkmanager "platforms;android-36" "build-tools;36.0.0" >/dev/null
           dotnet workload install maui-android
-      - name: Publish standalone ARM64 APK
+      - name: Publish installable ARM64 APK
         shell: bash
         run: |
+          set -euo pipefail
           dotnet restore src/GibddExamSimulator.Android/GibddExamSimulator.Android.csproj -r android-arm64
           dotnet publish src/GibddExamSimulator.Android/GibddExamSimulator.Android.csproj \
             -f net10.0-android -c Release -r android-arm64 --no-restore \
@@ -120,10 +171,10 @@ jobs:
           mkdir -p artifacts/android
           apk_path="$(find src/GibddExamSimulator.Android/bin/Release/net10.0-android/android-arm64/publish -name '*-Signed.apk' -print -quit)"
           test -n "${apk_path}"
-          cp "${apk_path}" artifacts/android/GibddExamSimulator-android-arm64-DEV-SIGNED.apk
-          python3 tools/verify_android_apk.py artifacts/android/GibddExamSimulator-android-arm64-DEV-SIGNED.apk
-          "${ANDROID_HOME}/build-tools/36.0.0/apksigner" verify --verbose artifacts/android/GibddExamSimulator-android-arm64-DEV-SIGNED.apk
-          "${ANDROID_HOME}/build-tools/36.0.0/aapt2" dump badging artifacts/android/GibddExamSimulator-android-arm64-DEV-SIGNED.apk | grep "package: name='app.gibddexamsimulator.mobile'"
+          cp "${apk_path}" artifacts/android/GibddExamSimulator-2.0.2-android-DEV-SIGNED.apk
+          python tools/verify_android_apk.py artifacts/android/GibddExamSimulator-2.0.2-android-DEV-SIGNED.apk
+          "${ANDROID_HOME}/build-tools/36.0.0/apksigner" verify --verbose artifacts/android/GibddExamSimulator-2.0.2-android-DEV-SIGNED.apk
+          "${ANDROID_HOME}/build-tools/36.0.0/aapt2" dump badging artifacts/android/GibddExamSimulator-2.0.2-android-DEV-SIGNED.apk | grep "package: name='app.gibddexamsimulator.mobile'"
       - uses: actions/upload-artifact@v4
         with:
           name: android-arm64-dev-signed

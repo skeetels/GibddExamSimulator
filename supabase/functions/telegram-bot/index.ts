@@ -65,6 +65,24 @@ export function commandFromText(text: string | undefined): string {
   return token.split("@", 1)[0];
 }
 
+export function startPayload(text: string | undefined): string | null {
+  const parts = text?.trim().split(/\s+/, 2) ?? [];
+  if (commandFromText(text) !== "/start" || !parts[1]) return null;
+  const value = parts[1].trim();
+  return /^[A-Za-z0-9_-]{40,64}$/.test(value) ? value : null;
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value),
+  );
+  return Array.from(
+    new Uint8Array(digest),
+    (byte) => byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
 async function telegramCall<T>(
   token: string,
   method: string,
@@ -172,8 +190,43 @@ export async function handleTelegramBot(request: Request): Promise<Response> {
         confirmed_at: new Date().toISOString(),
       });
       if (saved.error) throw saved.error;
-      await sendText(botToken, chatId, buildHelpCommand());
-      return responseJson(200, { accepted: true, linked: true });
+      const linkToken = startPayload(message.text);
+      let profileLinked = false;
+      if (linkToken) {
+        const tokenHash = await sha256Hex(linkToken);
+        const tokenResult = await admin.from("telegram_link_tokens")
+          .select("id,profile_id,expires_at,consumed_at")
+          .eq("token_hash", tokenHash)
+          .maybeSingle();
+        if (
+          !tokenResult.error && tokenResult.data &&
+          tokenResult.data.consumed_at === null &&
+          Date.parse(tokenResult.data.expires_at) > Date.now()
+        ) {
+          const consumed = await admin.from("telegram_link_tokens")
+            .update({ consumed_at: new Date().toISOString() })
+            .eq("id", tokenResult.data.id)
+            .is("consumed_at", null)
+            .select("id")
+            .maybeSingle();
+          if (!consumed.error && consumed.data) {
+            const linked = await admin.from("telegram_profile_links").upsert({
+              profile_id: tokenResult.data.profile_id,
+              telegram_chat_id: Number(chatId),
+              telegram_username: OWNER_USERNAME,
+              linked_at: new Date().toISOString(),
+              revoked_at: null,
+            });
+            if (linked.error) throw linked.error;
+            profileLinked = true;
+          }
+        }
+      }
+      const greeting = profileLinked
+        ? "✅ Telegram подключён к учебному профилю. Отчёты будут приходить автоматически.\n\n"
+        : "✅ Бот готов принимать автоматические отчёты.\n\n";
+      await sendText(botToken, chatId, greeting + buildHelpCommand());
+      return responseJson(200, { accepted: true, linked: true, profileLinked });
     }
 
     const recipient = await admin.from("telegram_private_recipients")

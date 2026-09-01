@@ -1,14 +1,78 @@
-name: Windows and Android release
+name: Release 2.0.2
 
 on:
   push:
-    tags: ['v*']
+    tags: ['v2.0.2']
 
 permissions:
   contents: write
 
+env:
+  DEPLOYMENT_ENVIRONMENT_ID: ${{ vars.DEPLOYMENT_ENVIRONMENT_ID }}
+  SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+  SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
+  SYNC_API_BASE_URL: ${{ vars.SYNC_API_BASE_URL }}
+  TELEGRAM_BOT_USERNAME: ${{ vars.TELEGRAM_BOT_USERNAME }}
+  PAGES_URL: ${{ vars.PAGES_URL }}
+
 jobs:
-  windows-release:
+  production-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Generate one final production contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = "v2.0.2"
+          repository_name="${GITHUB_REPOSITORY#*/}"
+          python tools/configure_deployment.py \
+            --environment-id "${DEPLOYMENT_ENVIRONMENT_ID}" \
+            --supabase-url "${SUPABASE_URL}" \
+            --supabase-publishable-key "${SUPABASE_PUBLISHABLE_KEY}" \
+            --sync-api-base-url "${SYNC_API_BASE_URL}" \
+            --github-repository "${GITHUB_REPOSITORY}" \
+            --pages-url "${PAGES_URL}" \
+            --telegram-bot-username "${TELEGRAM_BOT_USERNAME}" \
+            --pages-base "/${repository_name}/"
+          python tools/validate_deployment_config.py \
+            --config build/generated/deployment-config.json --compare-clients --health
+      - name: Wait for compatible backend deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..60}; do
+            if payload="$(curl --fail --silent --show-error --location \
+              -H "X-Environment-Id: ${DEPLOYMENT_ENVIRONMENT_ID}" \
+              "${SYNC_API_BASE_URL%/}/health")"; then
+              python -c 'import json,sys; p=json.loads(sys.argv[1]); assert p["status"]=="ok" and p["minimumClientVersion"]=="2.0.2" and p["environmentId"]==sys.argv[2]' "${payload}" "${DEPLOYMENT_ENVIRONMENT_ID}" && break
+            fi
+            if [[ "${attempt}" == 60 ]]; then exit 1; fi
+            sleep 10
+          done
+      - name: Wait for matching production Pages deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..60}; do
+            if curl --fail --silent --show-error --location \
+              "${PAGES_URL%/}/client-settings.json" -o published-config.json && \
+              cmp build/generated/deployment-config.json published-config.json; then
+              exit 0
+            fi
+            if [[ "${attempt}" == 60 ]]; then exit 1; fi
+            sleep 10
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: final-production-contract
+          path: build/generated/deployment-config.json
+
+  windows-and-pwa:
+    needs: production-contract
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,47 +82,52 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - name: Validate version and generate public client configuration
+      - name: Generate identical production contract
         shell: pwsh
-        env:
-          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
-          SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
         run: |
-          $version = $env:GITHUB_REF_NAME.TrimStart('v')
-          if ($version -notmatch '^\d+\.\d+\.\d+(\.\d+)?$') { throw "Invalid release version: $version" }
-          python tools/configure_deployment.py --supabase-url $env:SUPABASE_URL --supabase-publishable-key $env:SUPABASE_PUBLISHABLE_KEY --github-repository $env:GITHUB_REPOSITORY --pages-base '/'
-          "APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-      - name: Validate source and canonical AB bank
+          $repositoryName = $env:GITHUB_REPOSITORY.Split('/')[1]
+          python tools/configure_deployment.py --environment-id $env:DEPLOYMENT_ENVIRONMENT_ID --supabase-url $env:SUPABASE_URL --supabase-publishable-key $env:SUPABASE_PUBLISHABLE_KEY --sync-api-base-url $env:SYNC_API_BASE_URL --github-repository $env:GITHUB_REPOSITORY --pages-url $env:PAGES_URL --telegram-bot-username $env:TELEGRAM_BOT_USERNAME --pages-base "/$repositoryName/"
+          python tools/validate_deployment_config.py --config build/generated/deployment-config.json --compare-clients --health
+      - name: Validate source, tests and exact AB bank
         shell: pwsh
         run: |
           python tools/build_ab_question_bank.py --validate-only
           python tools/scan_for_secrets.py
-      - name: Restore and test cross-platform projects
-        shell: pwsh
-        run: |
           dotnet restore tests/GibddExamSimulator.Tests/GibddExamSimulator.Tests.csproj
           dotnet restore tests/GibddExamSimulator.Sync.Tests/GibddExamSimulator.Sync.Tests.csproj
           dotnet restore tests/GibddExamSimulator.Web.Tests/GibddExamSimulator.Web.Tests.csproj
           dotnet test tests/GibddExamSimulator.Tests/GibddExamSimulator.Tests.csproj -c Release --no-restore
           dotnet test tests/GibddExamSimulator.Sync.Tests/GibddExamSimulator.Sync.Tests.csproj -c Release --no-restore
           dotnet test tests/GibddExamSimulator.Web.Tests/GibddExamSimulator.Web.Tests.csproj -c Release --no-restore
-      - name: Build Windows installer
+      - name: Build self-contained Windows installer
         shell: pwsh
         run: |
           ./installer/Prepare-InnoSetup.ps1
-          ./installer/Build-Installer.ps1 -AppVersion $env:APP_VERSION -DotnetPath (Get-Command dotnet).Source -OutputDirectory "$PWD/outputs"
+          ./installer/Build-Installer.ps1 -AppVersion 2.0.2 -DotnetPath (Get-Command dotnet).Source -OutputDirectory "$PWD/outputs"
       - name: Build PWA and source archives
         shell: pwsh
         run: |
           dotnet publish src/GibddExamSimulator.Web/GibddExamSimulator.Web.csproj -c Release -o artifacts/publish/pwa
           Copy-Item artifacts/publish/pwa/wwwroot/index.html artifacts/publish/pwa/wwwroot/404.html
-          ./tools/Package-Release.ps1 -Version $env:APP_VERSION -PwaWwwRoot "$PWD/artifacts/publish/pwa/wwwroot" -OutputDirectory "$PWD/outputs"
+          New-Item -ItemType File artifacts/publish/pwa/wwwroot/.nojekyll -Force | Out-Null
+          ./tools/Package-Release.ps1 -Version 2.0.2 -PwaWwwRoot "$PWD/artifacts/publish/pwa/wwwroot" -OutputDirectory "$PWD/outputs" -DeploymentConfig "$PWD/build/generated/deployment-config.json"
+          New-Item -ItemType Directory "$PWD/validation/windows/Configuration" -Force | Out-Null
+          Copy-Item "$PWD/artifacts/publish/win-x64/Configuration/client-settings.json" "$PWD/validation/windows/Configuration/client-settings.json"
+          Copy-Item "$PWD/artifacts/publish/win-x64/GibddExamSimulator.dll" "$PWD/validation/windows/GibddExamSimulator.dll"
       - uses: actions/upload-artifact@v4
         with:
-          name: windows-and-web-release
-          path: outputs/*
+          name: windows-pwa-source-release
+          path: |
+            outputs/GibddExamSimulator-Setup-2.0.2-win-x64.exe
+            outputs/GibddExamSimulator-PWA-2.0.2.zip
+            outputs/GibddExamSimulator-Source-2.0.2.zip
+            outputs/deployment-config.json
+            outputs/GibddExamSimulator-Logo-2.0.2.png
+            validation/windows/Configuration/client-settings.json
+            validation/windows/GibddExamSimulator.dll
 
-  android-release:
+  signed-android:
+    needs: production-contract
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -73,17 +142,13 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
-      - name: Generate public client configuration
-        env:
-          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
-          SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
-        run: python tools/configure_deployment.py --supabase-url "${SUPABASE_URL}" --supabase-publishable-key "${SUPABASE_PUBLISHABLE_KEY}" --github-repository "${GITHUB_REPOSITORY}" --pages-base '/'
-      - name: Install Android build dependencies
+      - name: Generate identical production contract
         shell: bash
         run: |
-          yes | sdkmanager "platforms;android-36" "build-tools;36.0.0" >/dev/null
-          dotnet workload install maui-android
-      - name: Publish standalone ARM64 APK
+          set -euo pipefail
+          repository_name="${GITHUB_REPOSITORY#*/}"
+          python tools/configure_deployment.py --environment-id "${DEPLOYMENT_ENVIRONMENT_ID}" --supabase-url "${SUPABASE_URL}" --supabase-publishable-key "${SUPABASE_PUBLISHABLE_KEY}" --sync-api-base-url "${SYNC_API_BASE_URL}" --github-repository "${GITHUB_REPOSITORY}" --pages-url "${PAGES_URL}" --telegram-bot-username "${TELEGRAM_BOT_USERNAME}" --pages-base "/${repository_name}/"
+      - name: Require release signing material
         shell: bash
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -92,89 +157,140 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD ANDROID_KEYSTORE_PASSWORD; do
+            test -n "${!name:-}" || { echo "Required Android signing secret is missing: ${name}" >&2; exit 1; }
+          done
+      - name: Build and verify signed standalone APK
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          yes | sdkmanager "platforms;android-36" "build-tools;36.0.0" >/dev/null
+          dotnet workload install maui-android
+          keystore_path="${RUNNER_TEMP}/gibdd-release.keystore"
+          printf '%s' "${ANDROID_KEYSTORE_BASE64}" | base64 --decode > "${keystore_path}"
           dotnet restore src/GibddExamSimulator.Android/GibddExamSimulator.Android.csproj -r android-arm64
-          publish_args=(
-            src/GibddExamSimulator.Android/GibddExamSimulator.Android.csproj
-            -f net10.0-android -c Release -r android-arm64 --no-restore
-            -p:AndroidPackageFormats=apk
-            "-p:ApplicationDisplayVersion=${version}"
-          )
-          artifact_name="GibddExamSimulator-${version}-android-DEV-SIGNED.apk"
-          if [[ -n "${ANDROID_KEYSTORE_BASE64}" && -n "${ANDROID_KEY_ALIAS}" && -n "${ANDROID_KEY_PASSWORD}" && -n "${ANDROID_KEYSTORE_PASSWORD}" ]]; then
-            keystore_path="${RUNNER_TEMP}/gibdd-release.keystore"
-            printf '%s' "${ANDROID_KEYSTORE_BASE64}" | base64 --decode > "${keystore_path}"
-            publish_args+=(
-              -p:AndroidKeyStore=true
-              "-p:AndroidSigningKeyStore=${keystore_path}"
-              "-p:AndroidSigningKeyAlias=${ANDROID_KEY_ALIAS}"
-              "-p:AndroidSigningKeyPass=${ANDROID_KEY_PASSWORD}"
-              "-p:AndroidSigningStorePass=${ANDROID_KEYSTORE_PASSWORD}"
-            )
-            artifact_name="GibddExamSimulator-${version}-android.apk"
-          fi
-          dotnet publish "${publish_args[@]}"
+          dotnet publish src/GibddExamSimulator.Android/GibddExamSimulator.Android.csproj \
+            -f net10.0-android -c Release -r android-arm64 --no-restore \
+            -p:AndroidPackageFormats=apk -p:ApplicationDisplayVersion=2.0.2 -p:ApplicationVersion=202 \
+            -p:AndroidKeyStore=true "-p:AndroidSigningKeyStore=${keystore_path}" \
+            "-p:AndroidSigningKeyAlias=${ANDROID_KEY_ALIAS}" \
+            "-p:AndroidSigningKeyPass=${ANDROID_KEY_PASSWORD}" \
+            "-p:AndroidSigningStorePass=${ANDROID_KEYSTORE_PASSWORD}"
           mkdir -p outputs
           apk_path="$(find src/GibddExamSimulator.Android/bin/Release/net10.0-android/android-arm64/publish -name '*-Signed.apk' -print -quit)"
           test -n "${apk_path}"
-          cp "${apk_path}" "outputs/${artifact_name}"
-          python3 tools/verify_android_apk.py "outputs/${artifact_name}"
-          "${ANDROID_HOME}/build-tools/36.0.0/apksigner" verify --verbose "outputs/${artifact_name}"
-          "${ANDROID_HOME}/build-tools/36.0.0/aapt2" dump badging "outputs/${artifact_name}" | grep "package: name='app.gibddexamsimulator.mobile'.*versionName='${version}'"
+          cp "${apk_path}" outputs/GibddExamSimulator-2.0.2-android.apk
+          python tools/verify_android_apk.py outputs/GibddExamSimulator-2.0.2-android.apk
+          "${ANDROID_HOME}/build-tools/36.0.0/apksigner" verify --verbose --print-certs outputs/GibddExamSimulator-2.0.2-android.apk
+          "${ANDROID_HOME}/build-tools/36.0.0/aapt2" dump badging outputs/GibddExamSimulator-2.0.2-android.apk | grep "package: name='app.gibddexamsimulator.mobile'.*versionCode='202'.*versionName='2.0.2'"
       - uses: actions/upload-artifact@v4
         with:
-          name: android-release
-          path: outputs/*.apk
+          name: signed-android-release
+          path: outputs/GibddExamSimulator-2.0.2-android.apk
 
   publish-release:
-    needs: [windows-release, android-release]
+    needs: [production-contract, windows-and-pwa, signed-android]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
       - uses: actions/download-artifact@v4
         with:
-          pattern: '*-release'
-          merge-multiple: true
-          path: outputs
-      - name: Generate update manifest and SHA-256 list
+          name: final-production-contract
+          path: contract
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-pwa-source-release
+          path: windows
+      - uses: actions/download-artifact@v4
+        with:
+          name: signed-android-release
+          path: android
+      - name: Assemble exact release assets and E2E evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p outputs
+          cp windows/outputs/GibddExamSimulator-Setup-2.0.2-win-x64.exe outputs/
+          cp windows/outputs/GibddExamSimulator-PWA-2.0.2.zip outputs/
+          cp windows/outputs/GibddExamSimulator-Source-2.0.2.zip outputs/
+          cp android/GibddExamSimulator-2.0.2-android.apk outputs/
+          cp contract/deployment-config.json outputs/deployment-config.json
+          for evidence in 01-windows-qr.png 02-android-camera.png 03-scan-success.png 04-devices-linked.png 05-cross-device-error.png 06-restart-without-qr.png; do
+            test -s "docs/evidence/pairing-e2e/${evidence}"
+          done
+          (cd docs/evidence/pairing-e2e && zip -q -r "${GITHUB_WORKSPACE}/outputs/pairing-e2e-evidence.zip" .)
+      - name: Validate configuration inside every packaged client
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/validate_production_artifacts.py \
+            --deployment-config outputs/deployment-config.json \
+            --windows-publish windows/validation/windows \
+            --pwa-zip outputs/GibddExamSimulator-PWA-2.0.2.zip \
+            --apk outputs/GibddExamSimulator-2.0.2-android.apk \
+            --inno-script installer/GibddExamSimulator.iss
+      - name: Create updater manifest and SHA-256 ledger
         shell: pwsh
         run: |
-          $version = $env:GITHUB_REF_NAME.TrimStart('v')
-          $installer = Get-Item -LiteralPath "outputs/GibddExamSimulator-Setup-$version-win-x64.exe"
-          $apk = Get-ChildItem -LiteralPath outputs -Filter '*.apk' | Select-Object -First 1
-          if ($null -eq $apk) { throw 'Android APK artifact is missing.' }
-          $installerHash = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash
-          $apkHash = (Get-FileHash -LiteralPath $apk.FullName -Algorithm SHA256).Hash
-          $releaseUrl = "https://github.com/$env:GITHUB_REPOSITORY/releases/tag/$env:GITHUB_REF_NAME"
-          $assetBase = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:GITHUB_REF_NAME"
+          $installer = Get-Item 'outputs/GibddExamSimulator-Setup-2.0.2-win-x64.exe'
+          $apk = Get-Item 'outputs/GibddExamSimulator-2.0.2-android.apk'
+          $assetBase = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/v2.0.2"
           $manifest = [ordered]@{
-            version = $version
+            version = '2.0.2'
             downloadUrl = "$assetBase/$($installer.Name)"
-            sha256 = $installerHash
-            releaseNotes = "Версия $version: Windows, Android APK и PWA"
+            sha256 = (Get-FileHash $installer.FullName -Algorithm SHA256).Hash
+            releaseNotes = 'Одноразовая QR-привязка, автоматическая синхронизация, точный ПК-экзамен и Android APK.'
             publishedAtUtc = [DateTimeOffset]::UtcNow.ToString('o')
-            releasePageUrl = $releaseUrl
+            releasePageUrl = "https://github.com/$env:GITHUB_REPOSITORY/releases/tag/v2.0.2"
             androidDownloadUrl = "$assetBase/$($apk.Name)"
-            androidSha256 = $apkHash
+            androidSha256 = (Get-FileHash $apk.FullName -Algorithm SHA256).Hash
             androidPackageId = 'app.gibddexamsimulator.mobile'
             androidArchitecture = 'arm64-v8a'
             androidMinimumSdk = 26
           }
-          [IO.File]::WriteAllText(
-            (Join-Path $PWD 'outputs/update-manifest.json'),
-            ($manifest | ConvertTo-Json),
-            [Text.UTF8Encoding]::new($false))
-          Get-ChildItem -LiteralPath outputs -Filter 'SHA256SUMS*.txt' | Remove-Item -Force
-          $lines = Get-ChildItem -LiteralPath outputs -File | Sort-Object Name | ForEach-Object {
-            "$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash)  $($_.Name)"
-          }
-          [IO.File]::WriteAllLines(
-            (Join-Path $PWD 'outputs/SHA256SUMS.txt'),
-            $lines,
-            [Text.UTF8Encoding]::new($false))
-      - name: Create GitHub Release
-        shell: pwsh
+          [IO.File]::WriteAllText((Join-Path $PWD 'outputs/update-manifest.json'), ($manifest | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
+          $lines = Get-ChildItem outputs -File | Sort-Object Name | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash)  $($_.Name)" }
+          [IO.File]::WriteAllLines((Join-Path $PWD 'outputs/SHA256SUMS.txt'), $lines, [Text.UTF8Encoding]::new($false))
+      - name: Verify mandatory asset set
+        shell: bash
+        run: |
+          set -euo pipefail
+          for asset in \
+            GibddExamSimulator-Setup-2.0.2-win-x64.exe \
+            GibddExamSimulator-2.0.2-android.apk \
+            GibddExamSimulator-PWA-2.0.2.zip \
+            GibddExamSimulator-Source-2.0.2.zip \
+            update-manifest.json deployment-config.json SHA256SUMS.txt pairing-e2e-evidence.zip; do
+            test -s "outputs/${asset}"
+          done
+          python tools/scan_for_secrets.py
+          python tools/scan_release_assets.py outputs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: complete-release-2.0.2
+          path: outputs/*
+      - name: Create immutable GitHub Release
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $assets = Get-ChildItem -LiteralPath outputs -File | ForEach-Object FullName
-          gh release create $env:GITHUB_REF_NAME @assets --verify-tag --generate-notes --title "GibddExamSimulator $($env:GITHUB_REF_NAME.TrimStart('v'))"
+          set -euo pipefail
+          gh release create v2.0.2 outputs/* --verify-tag --generate-notes --title "GibddExamSimulator 2.0.2"
+      - name: Verify public downloads and updater manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          asset_base="https://github.com/${GITHUB_REPOSITORY}/releases/download/v2.0.2"
+          for asset in $(find outputs -maxdepth 1 -type f -printf '%f\n'); do
+            curl --fail --silent --show-error --location --retry 8 --retry-delay 5 "${asset_base}/${asset}" -o /dev/null
+          done
+          curl --fail --silent --show-error --location "${asset_base}/update-manifest.json" -o downloaded-manifest.json
+          cmp outputs/update-manifest.json downloaded-manifest.json

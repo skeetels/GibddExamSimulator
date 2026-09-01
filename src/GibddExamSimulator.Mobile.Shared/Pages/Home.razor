@@ -2,6 +2,7 @@
 @implements IDisposable
 @inject MobileAppState State
 @inject NavigationManager Navigation
+@inject IJSRuntime JS
 
 <PageTitle>Билеты ГИБДД AB</PageTitle>
 
@@ -13,13 +14,26 @@ else if (!string.IsNullOrWhiteSpace(State.InitializationError))
 {
     <section class="notice error"><h1>Не удалось запустить приложение</h1><p>@State.InitializationError</p></section>
 }
-else if (State.IsCloudConfigured && !State.IsAuthenticated)
+else if (State.NeedsPairing)
 {
-    <section class="hero-card">
-        <span class="eyebrow">ЕДИНАЯ ИСТОРИЯ</span>
-        <h1>Войдите в аккаунт</h1>
-        <p>Экзамены с телефона и компьютера объединяются, а результат автоматически уходит в Telegram владельцу.</p>
-        <button class="primary wide" @onclick="GoToLogin">Войти</button>
+    <section class="auth-card pairing-card">
+        <img src="logo.png" alt="Логотип" />
+        <span class="eyebrow">ОДИН РАЗ</span>
+        <h1>Синхронизация с компьютером</h1>
+        <p>Нажмите кнопку ниже и отсканируйте QR-код, показанный на экране компьютера. Это нужно сделать только один раз.</p>
+        <button class="primary wide camera-button" disabled="@busy" @onclick="ScanAsync">Открыть камеру</button>
+        <button class="text-button wide" @onclick="ToggleCode">@(!showCode ? "Ввести короткий код вручную" : "Скрыть ввод кода")</button>
+        @if (showCode)
+        {
+            <label class="field-label" for="pair-code">Одноразовый код с экрана компьютера</label>
+            <input id="pair-code" inputmode="text" maxlength="11" autocomplete="one-time-code" @bind="shortCode" />
+            <button class="secondary wide" disabled="@busy" @onclick="PairCodeAsync">Связать устройства</button>
+        }
+        <button class="text-button wide" @onclick="State.SkipPairingAsync">Продолжить пока без компьютера</button>
+        @if (!string.IsNullOrWhiteSpace(State.PairingStatus))
+        {
+            <p class="status-note">@State.PairingStatus</p>
+        }
     </section>
 }
 else
@@ -55,6 +69,39 @@ else
         <article><span>Сессии</span><strong>@State.SessionCount</strong></article>
         <article><span>Точность</span><strong>@State.AccuracyPercent.ToString("0")%</strong></article>
         <article><span>Сдано</span><strong>@State.PassedExamCount</strong></article>
+    </section>
+
+    <section class="section-card connection-card">
+        <div class="section-heading">
+            <div><span class="eyebrow">СВЯЗЬ УСТРОЙСТВ</span><h2>@State.AccountCaption</h2></div>
+            <span class="pill">@(State.IsLinked ? "Синхронизировано" : "Локально")</span>
+        </div>
+        <p>@(State.IsLinked ? "Ошибки и результаты переносятся автоматически." : "Подключите компьютер, чтобы объединить историю без регистрации.")</p>
+        @if (!State.IsLinked && State.IsCloudConfigured)
+        {
+            <button class="secondary wide" disabled="@busy" @onclick="ScanAsync">Подключить компьютер</button>
+        }
+        <h3>Подключённые устройства</h3>
+        <p class="status-note">@State.ConnectedDevicesStatus</p>
+        <div class="device-list">
+            @foreach (var device in State.ConnectedDevices)
+            {
+                <article class="device-row">
+                    <div>
+                        <strong>@DeviceKindCaption(device.DeviceKind)@(device.IsCurrentDevice ? " · это устройство" : string.Empty)</strong>
+                        <span>@device.DeviceName · @LastSeenCaption(device.LastSeenAtUtc)</span>
+                    </div>
+                    <button class="text-button danger" @onclick="() => RevokeDeviceAsync(device.DeviceId)">
+                        @(device.IsCurrentDevice ? "Отвязать это устройство" : "Отвязать устройство")
+                    </button>
+                </article>
+            }
+        </div>
+        <div class="button-row">
+            <button class="text-button" @onclick="async () => await State.RefreshConnectedDevicesAsync()">Обновить список</button>
+            <button class="text-button danger" @onclick="ResetSynchronizationAsync">Сбросить синхронизацию</button>
+        </div>
+        <button class="text-button wide" @onclick="State.ConnectTelegramAsync">Подключить Telegram</button>
     </section>
 
     <section class="section-card">
@@ -113,6 +160,8 @@ else
     private string candidateName = "Кандидат";
     private string localError = string.Empty;
     private bool busy;
+    private bool showCode;
+    private string shortCode = string.Empty;
 
     protected override void OnInitialized() => State.Changed += OnStateChanged;
 
@@ -145,7 +194,61 @@ else
 
     private void ResumeActive() => Navigation.NavigateTo("/session");
 
-    private void GoToLogin() => Navigation.NavigateTo("/login");
+    private async Task ScanAsync()
+    {
+        busy = true;
+        try
+        {
+            await State.ScanAndPairAsync();
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task PairCodeAsync()
+    {
+        busy = true;
+        try
+        {
+            if (await State.PairWithShortCodeAsync(shortCode))
+                shortCode = string.Empty;
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private void ToggleCode() => showCode = !showCode;
+
+    private async Task RevokeDeviceAsync(Guid deviceId)
+    {
+        var confirmed = await JS.InvokeAsync<bool>("confirm", "Отвязать выбранное устройство? Его доступ к общему профилю будет отозван.");
+        if (confirmed)
+            await State.RevokeDeviceAsync(deviceId);
+    }
+
+    private async Task ResetSynchronizationAsync()
+    {
+        var confirmed = await JS.InvokeAsync<bool>(
+            "confirm",
+            "Сбросить синхронизацию на этом устройстве? Локальная история останется, но потребуется новый QR-код.");
+        if (confirmed)
+            await State.ResetSynchronizationAsync();
+    }
+
+    private static string DeviceKindCaption(StudyDeviceKind kind) => kind switch
+    {
+        StudyDeviceKind.WindowsDesktop => "Компьютер",
+        StudyDeviceKind.AndroidApp => "Телефон",
+        _ => "Браузер"
+    };
+
+    private static string LastSeenCaption(DateTimeOffset? value) => value is null
+        ? "активность неизвестна"
+        : "активность " + value.Value.ToLocalTime().ToString("dd.MM.yyyy HH:mm");
 
     private static string DraftCaption(ActiveSessionDraft draft) => draft.Mode == StudyMode.Exam
         ? $"Экзамен · вопрос {draft.CurrentQuestionIndex + 1}"

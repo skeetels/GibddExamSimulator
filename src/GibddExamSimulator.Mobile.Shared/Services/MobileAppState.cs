@@ -11,10 +11,12 @@ namespace GibddExamSimulator.Mobile.Shared.Services;
 public sealed class MobileAppState(
     ILocalStudyStore store,
     IAuthSessionStore authStore,
+    IDeviceLinkStateStore linkStateStore,
     IMobileConfigurationProvider configurationProvider,
     IMobileQuestionBankLoader bankLoader,
     IMobileOfflinePackageService offlinePackage,
-    IMobilePlatform platform)
+    IMobilePlatform platform,
+    IMobileQrScanner qrScanner)
 {
     private const string RulesProfile = "ru-theory-mvd80-2025-05-26";
     private readonly LearningProfileBuilder _profileBuilder = new();
@@ -23,6 +25,8 @@ public sealed class MobileAppState(
     private readonly SemaphoreSlim _syncGate = new(1, 1);
     private readonly MobileReleaseUpdateService _updateService = new();
     private SupabaseAuthClient? _authClient;
+    private SupabaseDeviceApiRemote? _deviceApi;
+    private DeviceConnectionCoordinator? _connection;
     private SyncCoordinator? _sync;
     private AuthSession? _auth;
     private bool _completing;
@@ -36,15 +40,22 @@ public sealed class MobileAppState(
     public MobileQuestionBank? Bank { get; private set; }
     public Guid DeviceId { get; private set; }
     public Guid UserId { get; private set; }
+    public DeviceLinkState LinkState { get; private set; } = new() { DeviceId = Guid.Empty };
     public bool IsCloudConfigured => Configuration.IsCloudConfigured;
     public bool IsAuthenticated => _auth is not null;
     public bool CanStudy => UserId != Guid.Empty;
-    public string AccountCaption => _auth?.Email ?? (IsCloudConfigured ? "Вход не выполнен" : "Локальный режим");
+    public bool NeedsPairing => IsCloudConfigured && !LinkState.HasPeerDevice && !LinkState.OnboardingSkipped;
+    public bool IsLinked => LinkState.HasPeerDevice;
+    public bool CameraIsSupported => qrScanner.IsSupported;
+    public string AccountCaption => IsLinked ? "Устройства связаны" : "Только это устройство";
     public string DeviceCaption => DeviceId == Guid.Empty
         ? platform.DeviceLabel
         : $"{platform.DeviceLabel} · {DeviceId.ToString("N")[..6].ToUpperInvariant()}";
     public string Status { get; private set; } = string.Empty;
     public string SyncStatus { get; private set; } = string.Empty;
+    public string PairingStatus { get; private set; } = string.Empty;
+    public string ConnectedDevicesStatus { get; private set; } = "Список устройств появится после первой привязки.";
+    public IReadOnlyList<PairedDevice> ConnectedDevices { get; private set; } = [];
     public ActiveSessionDraft? SavedDraft { get; private set; }
     public MobileSessionController? ActiveSession { get; private set; }
     public StudySessionEnvelope? LastCompletedSession { get; private set; }
@@ -90,22 +101,47 @@ public sealed class MobileAppState(
             {
                 var options = Configuration.ToSupabaseOptions();
                 _authClient = new SupabaseAuthClient(options);
+                _deviceApi = new SupabaseDeviceApiRemote(options);
+                _connection = new DeviceConnectionCoordinator(
+                    authStore,
+                    linkStateStore,
+                    _authClient,
+                    _deviceApi);
                 _sync = new SyncCoordinator(store, authStore, _authClient, new SupabaseStudySessionRemote(options));
-                _auth = await authStore.LoadAsync();
-                if (_auth is not null)
+                try
                 {
+                    var connection = await _connection.InitializeAsync(
+                        DeviceId,
+                        platform.DeviceKind,
+                        platform.DeviceLabel);
+                    _auth = connection.Auth;
+                    LinkState = connection.LinkState;
                     UserId = _auth.UserId;
-                    await SyncAsync();
+                    if (store is ILocalUserScopeMigration migration)
+                        await migration.MergeUserScopeAsync(DeviceId, UserId);
+                    Status = connection.IsOffline
+                        ? "Офлайн — результат будет отправлен позже."
+                        : IsLinked
+                            ? "Устройства связаны. Синхронизация выполняется автоматически."
+                            : "Отсканируйте QR-код с компьютера один раз.";
+                    if (!connection.IsOffline)
+                    {
+                        await SyncAsync();
+                        _ = RefreshConnectedDevicesAsync();
+                    }
                 }
-                else
+                catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
                 {
-                    Status = "Войдите в выданный аккаунт для общей истории на телефоне и ПК.";
+                    UserId = DeviceId;
+                    LinkState = await linkStateStore.LoadAsync() ?? new DeviceLinkState { DeviceId = DeviceId };
+                    Status = "Офлайн — обучение доступно, связь создастся автоматически после появления сети.";
                 }
             }
             else
             {
                 UserId = DeviceId;
-                Status = "Локальный офлайн-режим. Telegram-отчёты начнут отправляться после настройки Supabase.";
+                LinkState = new DeviceLinkState { DeviceId = DeviceId };
+                Status = "Офлайн — результаты надёжно сохраняются на этом устройстве.";
             }
             if (CanStudy)
             {
@@ -124,54 +160,205 @@ public sealed class MobileAppState(
         Notify();
     }
 
-    public async Task<bool> SignInAsync(string email, string password)
+    public async Task SkipPairingAsync()
     {
-        if (_authClient is null)
+        if (_connection is null)
+            return;
+        LinkState = await _connection.SkipOnboardingAsync(LinkState);
+        PairingStatus = "Телефон не подключён. Это можно сделать позже с главной страницы.";
+        Notify();
+    }
+
+    public async Task<bool> ScanAndPairAsync(CancellationToken cancellationToken = default)
+    {
+        if (_deviceApi is null || _connection is null || _auth is null)
         {
-            Status = "Облачная конфигурация не задана.";
+            PairingStatus = "Нет сети. Повторите после подключения.";
             Notify();
             return false;
         }
         try
         {
-            Status = "Вход…";
+            PairingStatus = "Открываем камеру…";
             Notify();
-            _auth = await _authClient.SignInWithPasswordAsync(email, password);
-            await authStore.SaveAsync(_auth);
-            UserId = _auth.UserId;
-            SavedDraft = await store.GetDraftAsync(UserId);
-            await SyncAsync();
-            await RefreshStatisticsAsync();
-            Status = string.Empty;
+            var payload = await qrScanner.ScanAsync(cancellationToken);
+            PairingStatus = "Связываем устройства…";
+            Notify();
+            var invitation = PairingInvitation.Parse(payload, Configuration.EnvironmentId);
+            var completed = await _deviceApi.CompletePairingAsync(
+                _auth,
+                DeviceId,
+                platform.DeviceKind,
+                platform.DeviceLabel,
+                invitation.PairingId,
+                invitation.OneTimeSecret,
+                cancellationToken);
+            LinkState = await _connection.ApplyPairingAsync(LinkState, completed, cancellationToken);
+            PairingStatus = "Устройства связаны";
+            Status = "Теперь результаты будут синхронизироваться автоматически.";
+            await SyncAsync(cancellationToken);
+            await RefreshConnectedDevicesAsync(cancellationToken);
             Notify();
             return true;
         }
+        catch (OperationCanceledException)
+        {
+            PairingStatus = "Сканирование отменено.";
+            Notify();
+            return false;
+        }
         catch (Exception exception)
         {
-            Status = exception.Message;
+            PairingStatus = exception.Message;
             Notify();
             return false;
         }
     }
 
-    public async Task SignOutAsync()
+    public async Task<bool> PairWithShortCodeAsync(
+        string shortCode,
+        CancellationToken cancellationToken = default)
     {
+        if (_deviceApi is null || _connection is null || _auth is null)
+            return false;
         try
         {
-            if (_auth is not null && _authClient is not null)
-                await _authClient.SignOutAsync(_auth);
+            PairingStatus = "Проверяем одноразовый код…";
+            Notify();
+            var completed = await _deviceApi.CompletePairingWithShortCodeAsync(
+                _auth,
+                DeviceId,
+                platform.DeviceKind,
+                platform.DeviceLabel,
+                shortCode,
+                cancellationToken);
+            LinkState = await _connection.ApplyPairingAsync(LinkState, completed, cancellationToken);
+            PairingStatus = "Устройства связаны";
+            Status = "Теперь результаты будут синхронизироваться автоматически.";
+            await SyncAsync(cancellationToken);
+            await RefreshConnectedDevicesAsync(cancellationToken);
+            Notify();
+            return true;
+        }
+        catch (Exception exception)
+        {
+            PairingStatus = exception.Message;
+            Notify();
+            return false;
+        }
+    }
+
+    public async Task ConnectTelegramAsync()
+    {
+        if (_deviceApi is null || _auth is null)
+            return;
+        try
+        {
+            var link = await _deviceApi.StartTelegramLinkAsync(_auth);
+            await platform.OpenUriAsync(link.DeepLink);
+            Status = "Завершите подключение в Telegram. Возвращаться в настройки не нужно.";
         }
         catch
         {
-            // Local token removal still proceeds if the network is unavailable.
+            Status = "Не удалось подключить Telegram. Повторите позже.";
         }
-        await authStore.ClearAsync();
-        _auth = null;
-        UserId = Guid.Empty;
-        ActiveSession = null;
-        SavedDraft = null;
-        LastCompletedSession = null;
-        Status = "Вы вышли из аккаунта.";
+        Notify();
+    }
+
+    public async Task RefreshConnectedDevicesAsync(CancellationToken cancellationToken = default)
+    {
+        if (_deviceApi is null || _auth is null)
+        {
+            ConnectedDevicesStatus = "Список обновится автоматически после подключения к интернету.";
+            Notify();
+            return;
+        }
+        try
+        {
+            ConnectedDevicesStatus = "Обновляем список устройств…";
+            Notify();
+            ConnectedDevices = await _deviceApi.ListDevicesAsync(_auth, cancellationToken);
+            LinkState = LinkState with
+            {
+                HasPeerDevice = ConnectedDevices.Any(item => !item.IsCurrentDevice),
+                LastValidatedAtUtc = DateTimeOffset.UtcNow
+            };
+            await linkStateStore.SaveAsync(LinkState, cancellationToken);
+            ConnectedDevicesStatus = ConnectedDevices.Count == 0
+                ? "Подключённых устройств пока нет."
+                : $"Подключено устройств: {ConnectedDevices.Count}.";
+        }
+        catch (Exception exception)
+        {
+            ConnectedDevicesStatus = "Не удалось обновить список: " + exception.Message;
+        }
+        Notify();
+    }
+
+    public async Task RevokeDeviceAsync(Guid deviceId, CancellationToken cancellationToken = default)
+    {
+        var selected = ConnectedDevices.FirstOrDefault(item => item.DeviceId == deviceId);
+        if (selected is null || _deviceApi is null || _auth is null)
+            return;
+        if (selected.IsCurrentDevice)
+        {
+            await ResetSynchronizationAsync(cancellationToken);
+            return;
+        }
+        try
+        {
+            await _deviceApi.RevokeDeviceAsync(_auth, deviceId, cancellationToken);
+            ConnectedDevicesStatus = "Выбранное устройство отвязано.";
+            await RefreshConnectedDevicesAsync(cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            ConnectedDevicesStatus = "Не удалось отвязать устройство: " + exception.Message;
+            Notify();
+        }
+    }
+
+    public async Task ResetSynchronizationAsync(CancellationToken cancellationToken = default)
+    {
+        if (_deviceApi is null || _auth is null || _connection is null)
+        {
+            ConnectedDevicesStatus = "Для безопасного сброса синхронизации нужен интернет.";
+            Notify();
+            return;
+        }
+        try
+        {
+            await _deviceApi.RevokeDeviceAsync(_auth, DeviceId, cancellationToken);
+            var previousUserId = UserId;
+            await authStore.ClearAsync(cancellationToken);
+            await linkStateStore.ClearAsync(cancellationToken);
+            if (store is ILocalUserScopeMigration migration)
+                await migration.MergeUserScopeAsync(previousUserId, DeviceId, cancellationToken);
+            _auth = null;
+            UserId = DeviceId;
+            LinkState = new DeviceLinkState { DeviceId = DeviceId };
+            ConnectedDevices = [];
+
+            var connection = await _connection.InitializeAsync(
+                DeviceId,
+                platform.DeviceKind,
+                platform.DeviceLabel,
+                cancellationToken);
+            _auth = connection.Auth;
+            LinkState = connection.LinkState;
+            UserId = _auth.UserId;
+            if (store is ILocalUserScopeMigration newScopeMigration)
+                await newScopeMigration.MergeUserScopeAsync(DeviceId, UserId, cancellationToken);
+            SavedDraft = await store.GetDraftAsync(UserId, cancellationToken);
+            await RefreshStatisticsAsync();
+            PairingStatus = "Синхронизация сброшена. Отсканируйте новый QR-код с компьютера.";
+            ConnectedDevicesStatus = "Это устройство готово к новой одноразовой привязке.";
+            Status = "Локальная история сохранена.";
+        }
+        catch (Exception exception)
+        {
+            ConnectedDevicesStatus = "Сброс не выполнен: " + exception.Message;
+        }
         Notify();
     }
 
@@ -404,6 +591,26 @@ public sealed class MobileAppState(
     {
         if (!IsInitialized)
             await InitializeAsync();
+        else if (_connection is not null)
+        {
+            try
+            {
+                var previousUserId = UserId;
+                var connection = await _connection.InitializeAsync(DeviceId, platform.DeviceKind, platform.DeviceLabel);
+                _auth = connection.Auth;
+                LinkState = connection.LinkState;
+                UserId = _auth.UserId;
+                if (store is ILocalUserScopeMigration migration)
+                    await migration.MergeUserScopeAsync(previousUserId, UserId);
+                if (!connection.IsOffline)
+                    _ = RefreshConnectedDevicesAsync();
+            }
+            catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
+            {
+                Status = "Офлайн — результат будет отправлен позже.";
+                Notify();
+            }
+        }
         if (CanStudy)
             await SyncAsync();
     }
@@ -456,7 +663,7 @@ public sealed class MobileAppState(
             await RebuildProfileAsync();
             await RefreshStatisticsAsync();
             Status = envelope.Mode == StudyMode.Exam
-                ? "Результат сохранён. Telegram-отчёт отправится автоматически при синхронизации."
+                ? "Результат сохранён и будет отправлен автоматически."
                 : "Тренировка сохранена в единую историю.";
             _ = SyncAsync();
         }
@@ -513,7 +720,7 @@ public sealed class MobileAppState(
     private void RequireStudyReady()
     {
         if (!CanStudy || Bank is null)
-            throw new InvalidOperationException("Сначала войдите в аккаунт и дождитесь загрузки комплекта AB.");
+            throw new InvalidOperationException("Дождитесь загрузки комплекта вопросов AB.");
     }
 
     private void OnOfflineProgress(int completed, int total)

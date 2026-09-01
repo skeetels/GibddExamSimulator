@@ -50,3 +50,9 @@ public interface IMobilePlatform
     bool SupportsInstallableUpdates { get; }
     Task OpenUriAsync(Uri uri);
 }
+
+public interface IMobileQrScanner
+{
+    bool IsSupported { get; }
+    Task<string> ScanAsync(CancellationToken cancellationToken = default);
+}

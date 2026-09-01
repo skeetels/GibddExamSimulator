@@ -5,7 +5,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta http-equiv="Content-Security-Policy"
-          content="default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'none'; form-action 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://*.supabase.co wss://*.supabase.co; worker-src 'self' blob:; manifest-src 'self'" />
+          content="default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'none'; form-action 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; connect-src 'self' https://*.supabase.co wss://*.supabase.co; worker-src 'self' blob:; manifest-src 'self'" />
     <title>Билеты ГИБДД AB</title>
     <base href="/" />
     <link rel="preload" id="webassembly" />
@@ -35,6 +35,7 @@
         <button id="pwa-update-button" type="button">Обновить</button>
     </div>
     <script src="js/storage.js"></script>
+    <script src="js/qr-scanner.js"></script>
     <script src="js/offline.js"></script>
     <script src="js/pwa-update.js"></script>
     <script src="_framework/blazor.webassembly#[.{fingerprint}].js"></script>

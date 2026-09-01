@@ -19,7 +19,7 @@ def save_png(source: Image.Image, size: int, destination: Path) -> None:
 
 
 def build(root: Path) -> list[Path]:
-    master_path = root / "assets" / "branding" / "logo-master.png"
+    master_path = root / "assets" / "branding" / "logo-master-v2.png"
     branding = master_path.parent
     web_root = root / "src" / "GibddExamSimulator.Web" / "wwwroot"
     source = Image.open(master_path).convert("RGBA")

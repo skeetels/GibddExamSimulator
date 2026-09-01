@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
+using System.Net.Http;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Input;
@@ -38,16 +39,20 @@ public sealed class MainViewModel : ObservableObject
     private readonly QuestionSelector _selector = new();
     private PageKind _page = PageKind.Loading;
     private string _loadingText = "Проверка комплекта экзаменационных вопросов…";
-    private string _email = string.Empty;
-    private string _loginStatus = string.Empty;
     private string _candidateName = "Кандидат";
     private string _accountCaption = string.Empty;
     private string _cloudStatus = string.Empty;
     private string _syncStatus = string.Empty;
+    private string _connectedDevicesStatus = "Список устройств появится после первой привязки.";
     private string _homeStatistics = string.Empty;
     private string _updateStatus = string.Empty;
     private bool _hasAvailableUpdate;
     private string _deviceCaption = "ПК";
+    private string _pairingStatus = string.Empty;
+    private string _pairingShortCode = string.Empty;
+    private string _pairingExpires = string.Empty;
+    private ImageSource? _pairingQrImage;
+    private bool _hasLinkedPhone;
     private string _readyTitle = string.Empty;
     private string _readyDetails = string.Empty;
     private string _stageCaption = string.Empty;
@@ -80,6 +85,8 @@ public sealed class MainViewModel : ObservableObject
     private DesktopStudyStore? _store;
     private WindowsProtectedAuthSessionStore? _authStore;
     private SupabaseAuthClient? _authClient;
+    private SupabaseDeviceApiRemote? _deviceApi;
+    private DeviceConnectionCoordinator? _connection;
     private SyncCoordinator? _sync;
     private AuthSession? _auth;
     private Guid _deviceId;
@@ -95,6 +102,10 @@ public sealed class MainViewModel : ObservableObject
     private UpdateCheckResult? _availableUpdate;
     private string _localDataRoot = string.Empty;
     private bool _handlingTransition;
+    private DeviceLinkState _linkState = new() { DeviceId = Guid.Empty };
+    private PairingStartResult? _activePairing;
+    private CancellationTokenSource? _pairingPolling;
+    private DateTimeOffset _lastAutomaticSyncAttempt = DateTimeOffset.MinValue;
 
     public MainViewModel()
     {
@@ -113,7 +124,12 @@ public sealed class MainViewModel : ObservableObject
         PreviousReviewCommand = new RelayCommand(() => NavigateReview(-1));
         NextReviewCommand = new RelayCommand(() => NavigateReview(1));
         SyncNowCommand = new AsyncRelayCommand(() => SyncNowAsync(showProgress: true));
-        SignOutCommand = new AsyncRelayCommand(SignOutAsync);
+        SkipPairingCommand = new AsyncRelayCommand(SkipPairingAsync);
+        ConnectNewPhoneCommand = new AsyncRelayCommand(OpenPairingAsync);
+        ConnectTelegramCommand = new AsyncRelayCommand(ConnectTelegramAsync);
+        RefreshDevicesCommand = new AsyncRelayCommand(RefreshConnectedDevicesAsync);
+        RevokeDeviceCommand = new AsyncRelayCommand<PairedDeviceItem>(RevokeDeviceAsync);
+        ResetSynchronizationCommand = new AsyncRelayCommand(ResetSynchronizationAsync);
         CheckUpdatesCommand = new AsyncRelayCommand(() => CheckForUpdatesAsync(silent: false));
         InstallUpdateCommand = new AsyncRelayCommand(InstallAvailableUpdateAsync);
         ExitCommand = new RelayCommand(() => System.Windows.Application.Current.Shutdown());
@@ -122,19 +138,24 @@ public sealed class MainViewModel : ObservableObject
     public ObservableCollection<QuestionNavigationItem> QuestionNavigation { get; } = [];
     public ObservableCollection<AnswerChoiceItem> AnswerChoices { get; } = [];
     public ObservableCollection<ExamQuestionPreviewItem> OverviewQuestions { get; } = [];
+    public ObservableCollection<PairedDeviceItem> ConnectedDevices { get; } = [];
 
     public PageKind Page { get => _page; private set => SetProperty(ref _page, value); }
     public string LoadingText { get => _loadingText; private set => SetProperty(ref _loadingText, value); }
-    public string Email { get => _email; set => SetProperty(ref _email, value); }
-    public string LoginStatus { get => _loginStatus; private set => SetProperty(ref _loginStatus, value); }
     public string CandidateName { get => _candidateName; set => SetProperty(ref _candidateName, value); }
     public string AccountCaption { get => _accountCaption; private set => SetProperty(ref _accountCaption, value); }
     public string CloudStatus { get => _cloudStatus; private set => SetProperty(ref _cloudStatus, value); }
     public string SyncStatus { get => _syncStatus; private set => SetProperty(ref _syncStatus, value); }
+    public string ConnectedDevicesStatus { get => _connectedDevicesStatus; private set => SetProperty(ref _connectedDevicesStatus, value); }
     public string HomeStatistics { get => _homeStatistics; private set => SetProperty(ref _homeStatistics, value); }
     public string UpdateStatus { get => _updateStatus; private set => SetProperty(ref _updateStatus, value); }
     public bool HasAvailableUpdate { get => _hasAvailableUpdate; private set => SetProperty(ref _hasAvailableUpdate, value); }
     public string DeviceCaption { get => _deviceCaption; private set => SetProperty(ref _deviceCaption, value); }
+    public string PairingStatus { get => _pairingStatus; private set => SetProperty(ref _pairingStatus, value); }
+    public string PairingShortCode { get => _pairingShortCode; private set => SetProperty(ref _pairingShortCode, value); }
+    public string PairingExpires { get => _pairingExpires; private set => SetProperty(ref _pairingExpires, value); }
+    public ImageSource? PairingQrImage { get => _pairingQrImage; private set => SetProperty(ref _pairingQrImage, value); }
+    public bool HasLinkedPhone { get => _hasLinkedPhone; private set => SetProperty(ref _hasLinkedPhone, value); }
     public string ReadyTitle { get => _readyTitle; private set => SetProperty(ref _readyTitle, value); }
     public string ReadyDetails { get => _readyDetails; private set => SetProperty(ref _readyDetails, value); }
     public string StageCaption { get => _stageCaption; private set => SetProperty(ref _stageCaption, value); }
@@ -206,7 +227,12 @@ public sealed class MainViewModel : ObservableObject
     public ICommand PreviousReviewCommand { get; }
     public ICommand NextReviewCommand { get; }
     public ICommand SyncNowCommand { get; }
-    public ICommand SignOutCommand { get; }
+    public ICommand SkipPairingCommand { get; }
+    public ICommand ConnectNewPhoneCommand { get; }
+    public ICommand ConnectTelegramCommand { get; }
+    public ICommand RefreshDevicesCommand { get; }
+    public ICommand RevokeDeviceCommand { get; }
+    public ICommand ResetSynchronizationCommand { get; }
     public ICommand CheckUpdatesCommand { get; }
     public ICommand InstallUpdateCommand { get; }
     public ICommand ExitCommand { get; }
@@ -238,29 +264,65 @@ public sealed class MainViewModel : ObservableObject
             {
                 var options = _configuration.ToSupabaseOptions();
                 _authClient = new SupabaseAuthClient(options);
+                _deviceApi = new SupabaseDeviceApiRemote(options);
+                _connection = new DeviceConnectionCoordinator(
+                    _authStore,
+                    _authStore,
+                    _authClient,
+                    _deviceApi);
                 _sync = new SyncCoordinator(
                     _store,
                     _authStore,
                     _authClient,
                     new SupabaseStudySessionRemote(options));
-                _auth = await _authStore.LoadAsync();
-                if (_auth is null)
+                try
                 {
-                    CloudStatus = "Войдите в выданный аккаунт. Самостоятельная регистрация отключена.";
-                    Page = PageKind.Login;
-                }
-                else
-                {
-                    await ActivateUserAsync(_auth.UserId);
-                    Page = PageKind.Home;
+                    var connection = await _connection.InitializeAsync(
+                        _deviceId,
+                        StudyDeviceKind.WindowsDesktop,
+                        Environment.MachineName);
+                    _auth = connection.Auth;
+                    _linkState = connection.LinkState;
+                    _userId = _auth.UserId;
+                    await _store.MergeUserScopeAsync(_deviceId, _userId);
+                    HasLinkedPhone = _linkState.HasPeerDevice;
+                    AccountCaption = HasLinkedPhone ? "Устройства связаны" : "Телефон не подключён";
+                    CloudStatus = connection.IsOffline
+                        ? "Офлайн — результат будет отправлен позже"
+                        : HasLinkedPhone ? "Синхронизировано" : "Телефон не подключён";
+                    await ActivateUserAsync(_userId);
+                    if (!connection.IsOffline)
+                        _ = RefreshConnectedDevicesAsync();
+                    if (!HasLinkedPhone && !_linkState.OnboardingSkipped)
+                        await OpenPairingAsync();
+                    else
+                        Page = PageKind.Home;
                     _ = SyncNowAsync(showProgress: false);
+                }
+                catch (HttpRequestException)
+                {
+                    _userId = _deviceId;
+                    _linkState = await _authStore.LoadLinkStateAsync() ?? new DeviceLinkState { DeviceId = _deviceId };
+                    HasLinkedPhone = _linkState.HasPeerDevice;
+                    AccountCaption = HasLinkedPhone ? "Устройства связаны" : "Телефон не подключён";
+                    CloudStatus = "Офлайн — результат будет отправлен позже";
+                    await ActivateUserAsync(_userId);
+                    if (!HasLinkedPhone && !_linkState.OnboardingSkipped)
+                    {
+                        Page = PageKind.Pairing;
+                        PairingStatus = "Для первой привязки нужен интернет. Экзамен доступен без сети.";
+                    }
+                    else
+                    {
+                        Page = PageKind.Home;
+                    }
                 }
             }
             else
             {
                 _userId = _deviceId;
-                AccountCaption = "Локальный режим";
-                CloudStatus = "Облако пока не настроено. Экзамены работают офлайн; Telegram-отчёт останется в очереди до подключения Supabase.";
+                AccountCaption = "Телефон не подключён";
+                CloudStatus = "Офлайн — результаты сохраняются на компьютере";
                 await ActivateUserAsync(_userId);
                 Page = PageKind.Home;
             }
@@ -274,32 +336,13 @@ public sealed class MainViewModel : ObservableObject
         }
     }
 
-    public async Task SignInAsync(string password)
-    {
-        if (_authClient is null || _authStore is null)
-        {
-            LoginStatus = "Облачный адрес или публичный ключ Supabase не настроен.";
-            return;
-        }
-
-        LoginStatus = "Проверка учётной записи…";
-        try
-        {
-            _auth = await _authClient.SignInWithPasswordAsync(Email, password);
-            await _authStore.SaveAsync(_auth);
-            await ActivateUserAsync(_auth.UserId);
-            LoginStatus = string.Empty;
-            Page = PageKind.Home;
-            await SyncNowAsync(showProgress: false);
-        }
-        catch (Exception exception)
-        {
-            LoginStatus = SafeMessage(exception);
-        }
-    }
-
     public async Task TickAsync()
     {
+        if (Page == PageKind.Home && DateTimeOffset.UtcNow - _lastAutomaticSyncAttempt > TimeSpan.FromMinutes(2))
+        {
+            _lastAutomaticSyncAttempt = DateTimeOffset.UtcNow;
+            _ = SyncNowAsync(showProgress: false);
+        }
         if (Page != PageKind.Exam || _engine?.Session is null || _handlingTransition)
             return;
         _engine.Tick();
@@ -392,7 +435,7 @@ public sealed class MainViewModel : ObservableObject
         if (_store is null || _bank is null)
             throw new InvalidOperationException("Локальное хранилище ещё не готово.");
         _userId = userId;
-        AccountCaption = _auth is null ? "Локальный режим" : _auth.Email;
+        AccountCaption = HasLinkedPhone ? "Устройства связаны" : "Телефон не подключён";
         var migration = await _store.MigrateLegacyAsync(
             userId,
             _deviceId,
@@ -844,7 +887,7 @@ public sealed class MainViewModel : ObservableObject
         if (_sync is null || _store is null)
         {
             if (showProgress)
-                SyncStatus = "Облачная синхронизация не настроена.";
+                SyncStatus = "Офлайн — результат будет отправлен позже.";
             return null;
         }
         if (!await _syncGate.WaitAsync(0))
@@ -899,37 +942,269 @@ public sealed class MainViewModel : ObservableObject
             (errorTickets.Length == 0 ? "\nОшибок пока нет." : "\nЧаще всего ошибки: " + string.Join("; ", errorTickets) + ".");
     }
 
-    private async Task SignOutAsync()
+    private async Task OpenPairingAsync()
     {
-        if (_authStore is null)
-            return;
-        if (_auth is null && !_configuration.IsCloudConfigured)
+        Page = PageKind.Pairing;
+        _pairingPolling?.Cancel();
+        _pairingPolling?.Dispose();
+        _pairingPolling = null;
+        PairingQrImage = null;
+        PairingShortCode = string.Empty;
+        PairingExpires = string.Empty;
+
+        if (_deviceApi is null || _auth is null)
         {
-            SyncStatus = "Приложение работает локально: облачный аккаунт ещё не настроен.";
+            PairingStatus = "Для первой привязки нужен интернет. Экзамен доступен без сети.";
+            return;
+        }
+
+        try
+        {
+            PairingStatus = "Создаём одноразовый QR-код…";
+            _activePairing = await _deviceApi.StartPairingAsync(_auth, _deviceId);
+            PairingQrImage = QrCodeImageFactory.Create(_activePairing.QrPayload);
+            PairingShortCode = FormatShortCode(_activePairing.ShortCode);
+            PairingStatus = "Ожидание сканирования…";
+            _pairingPolling = new CancellationTokenSource();
+            _ = PollPairingAsync(_pairingPolling.Token);
+        }
+        catch
+        {
+            PairingStatus = "Не удалось получить QR-код. Проверьте интернет и повторите.";
+        }
+    }
+
+    private async Task PollPairingAsync(CancellationToken cancellationToken)
+    {
+        if (_activePairing is null || _deviceApi is null || _auth is null || _connection is null)
+            return;
+        var pairing = _activePairing;
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested && Page == PageKind.Pairing)
+            {
+                var remaining = pairing.ExpiresAtUtc - DateTimeOffset.UtcNow;
+                if (remaining <= TimeSpan.Zero)
+                {
+                    PairingStatus = "Срок QR-кода истёк. Создаём новый…";
+                    await OpenPairingAsync();
+                    return;
+                }
+                PairingExpires = $"Код обновится через {Math.Ceiling(remaining.TotalMinutes):0} мин.";
+                await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+                PairingStatusResult status;
+                try
+                {
+                    status = await _deviceApi.GetPairingStatusAsync(_auth, pairing.PairingId, cancellationToken);
+                }
+                catch (Exception) when (!cancellationToken.IsCancellationRequested)
+                {
+                    PairingStatus = "Связь временно прервалась. Проверяем снова автоматически…";
+                    await Task.Delay(TimeSpan.FromSeconds(3), cancellationToken);
+                    continue;
+                }
+                if (status.Status == PairingRequestStatus.Pending)
+                {
+                    PairingStatus = "Ожидание сканирования…";
+                    continue;
+                }
+                if (status.Status == PairingRequestStatus.Completed && status.ProfileId is Guid profileId)
+                {
+                    _linkState = await _connection.ApplyPairingAsync(
+                        _linkState,
+                        new PairingCompleteResult(
+                            profileId,
+                            _linkState.LatestRevision,
+                            status.LinkedDeviceName ?? "Телефон"),
+                        cancellationToken);
+                    HasLinkedPhone = true;
+                    AccountCaption = "Устройства связаны";
+                    CloudStatus = "Синхронизировано";
+                    PairingStatus = "Устройства связаны\nТеперь результаты будут синхронизироваться автоматически.";
+                    PairingQrImage = null;
+                    PairingShortCode = string.Empty;
+                    PairingExpires = string.Empty;
+                    await SyncNowAsync(showProgress: false);
+                    await RefreshConnectedDevicesAsync();
+                    await Task.Delay(TimeSpan.FromMilliseconds(900), cancellationToken);
+                    Page = PageKind.Home;
+                    return;
+                }
+                await OpenPairingAsync();
+                return;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // A new QR or navigation cancelled this polling loop.
+        }
+        catch (Exception exception)
+        {
+            PairingStatus = "Проверка привязки остановлена: " + SafeMessage(exception);
+        }
+    }
+
+    private async Task SkipPairingAsync()
+    {
+        _pairingPolling?.Cancel();
+        if (_connection is not null)
+            _linkState = await _connection.SkipOnboardingAsync(_linkState);
+        else if (_authStore is IDeviceLinkStateStore stateStore)
+        {
+            _linkState = _linkState with { OnboardingSkipped = true };
+            await stateStore.SaveAsync(_linkState);
+        }
+        Page = PageKind.Home;
+        CloudStatus = "Телефон не подключён";
+    }
+
+    private async Task RefreshConnectedDevicesAsync()
+    {
+        if (_deviceApi is null || _auth is null)
+        {
+            ConnectedDevicesStatus = "Список устройств будет обновлён после подключения к интернету.";
             return;
         }
         try
         {
-            if (_auth is not null && _authClient is not null)
-                await _authClient.SignOutAsync(_auth);
+            ConnectedDevicesStatus = "Обновляем список устройств…";
+            var devices = await _deviceApi.ListDevicesAsync(_auth);
+            ConnectedDevices.Clear();
+            foreach (var device in devices.OrderBy(item => item.CreatedAtUtc))
+            {
+                var kind = device.DeviceKind switch
+                {
+                    StudyDeviceKind.WindowsDesktop => "Компьютер",
+                    StudyDeviceKind.AndroidApp => "Телефон",
+                    _ => "Браузер"
+                };
+                var activity = device.LastSeenAtUtc?.ToLocalTime().ToString("dd.MM.yyyy HH:mm") ?? "нет данных";
+                ConnectedDevices.Add(new PairedDeviceItem(
+                    device.DeviceId,
+                    $"{kind} · {device.DeviceName}" + (device.IsCurrentDevice ? " (это устройство)" : string.Empty),
+                    $"Последняя активность: {activity}",
+                    device.IsCurrentDevice,
+                    device.IsCurrentDevice ? "Отвязать это устройство" : "Отвязать устройство"));
+            }
+            HasLinkedPhone = devices.Any(item => item.DeviceId != _deviceId);
+            ConnectedDevicesStatus = devices.Count == 0
+                ? "Подключённых устройств пока нет."
+                : $"Подключено устройств: {devices.Count}.";
         }
         catch (Exception exception)
         {
-            SyncStatus = "Серверный выход не подтверждён: " + SafeMessage(exception);
+            ConnectedDevicesStatus = "Не удалось обновить список: " + SafeMessage(exception);
         }
-        await _authStore.ClearAsync();
-        _auth = null;
-        _userId = Guid.Empty;
-        AccountCaption = string.Empty;
-        Page = PageKind.Login;
     }
+
+    private async Task RevokeDeviceAsync(PairedDeviceItem device)
+    {
+        if (_deviceApi is null || _auth is null)
+        {
+            ConnectedDevicesStatus = "Для отвязки устройства нужен интернет.";
+            return;
+        }
+        var warning = device.IsCurrentDevice
+            ? "Это устройство потеряет доступ к общему профилю. Локальная история останется. Продолжить?"
+            : $"Отвязать «{device.Title}» от общего профиля?";
+        if (MessageBox.Show(warning, "Отвязать устройство", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+            return;
+        if (device.IsCurrentDevice)
+        {
+            await ResetSynchronizationCoreAsync();
+            return;
+        }
+        try
+        {
+            await _deviceApi.RevokeDeviceAsync(_auth, device.DeviceId);
+            ConnectedDevicesStatus = "Выбранное устройство отвязано.";
+            await RefreshConnectedDevicesAsync();
+        }
+        catch (Exception exception)
+        {
+            ConnectedDevicesStatus = "Не удалось отвязать устройство: " + SafeMessage(exception);
+        }
+    }
+
+    private async Task ResetSynchronizationAsync()
+    {
+        const string warning =
+            "Будет отозван доступ этого компьютера к общему профилю и создана новая безопасная связь. " +
+            "Локальные экзамены останутся на компьютере. Продолжить?";
+        if (MessageBox.Show(warning, "Сбросить синхронизацию", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+            return;
+        await ResetSynchronizationCoreAsync();
+    }
+
+    private async Task ResetSynchronizationCoreAsync()
+    {
+        if (_deviceApi is null || _auth is null || _authStore is null || _store is null || _connection is null)
+        {
+            ConnectedDevicesStatus = "Для безопасного сброса синхронизации нужен интернет.";
+            return;
+        }
+        try
+        {
+            await _deviceApi.RevokeDeviceAsync(_auth, _deviceId);
+            var previousUserId = _userId;
+            await _authStore.ClearAsync();
+            await ((IDeviceLinkStateStore)_authStore).ClearAsync();
+            await _store.MergeUserScopeAsync(previousUserId, _deviceId);
+            _auth = null;
+            _userId = _deviceId;
+            _linkState = new DeviceLinkState { DeviceId = _deviceId };
+            HasLinkedPhone = false;
+            ConnectedDevices.Clear();
+
+            var connection = await _connection.InitializeAsync(
+                _deviceId,
+                StudyDeviceKind.WindowsDesktop,
+                Environment.MachineName);
+            _auth = connection.Auth;
+            _linkState = connection.LinkState;
+            _userId = _auth.UserId;
+            await _store.MergeUserScopeAsync(_deviceId, _userId);
+            await ActivateUserAsync(_userId);
+            AccountCaption = "Телефон не подключён";
+            CloudStatus = "Нужна новая одноразовая привязка";
+            ConnectedDevicesStatus = "Синхронизация сброшена. Подключите телефон новым QR-кодом.";
+            await OpenPairingAsync();
+        }
+        catch (Exception exception)
+        {
+            ConnectedDevicesStatus = "Сброс не выполнен: " + SafeMessage(exception);
+        }
+    }
+
+    private async Task ConnectTelegramAsync()
+    {
+        if (_deviceApi is null || _auth is null)
+        {
+            SyncStatus = "Нет сети. Повторите после подключения.";
+            return;
+        }
+        try
+        {
+            var link = await _deviceApi.StartTelegramLinkAsync(_auth);
+            Process.Start(new ProcessStartInfo(link.DeepLink.AbsoluteUri) { UseShellExecute = true });
+            SyncStatus = "Завершите подключение в Telegram.";
+        }
+        catch
+        {
+            SyncStatus = "Не удалось подключить Telegram. Повторите позже.";
+        }
+    }
+
+    private static string FormatShortCode(string value) => value.Length == 8
+        ? $"{value[..4]}-{value[4..]}"
+        : value;
 
     private async Task CheckForUpdatesAsync(bool silent)
     {
         if (string.IsNullOrWhiteSpace(_configuration.GitHubRepository))
         {
             if (!silent)
-                UpdateStatus = "Репозиторий обновлений ещё не указан в клиентской конфигурации.";
+                UpdateStatus = "Проверка обновлений сейчас недоступна.";
             return;
         }
         try

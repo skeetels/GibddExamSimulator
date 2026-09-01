@@ -22,6 +22,12 @@ public sealed class SupabaseAuthClient : IAuthClient
         _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
+    public async Task<AuthSession> CreateAnonymousAsync(CancellationToken cancellationToken = default)
+    {
+        using var request = CreateRequest(HttpMethod.Post, "auth/v1/signup", new { });
+        return await SendTokenRequestAsync(request, cancellationToken);
+    }
+
     public async Task<AuthSession> SignInWithPasswordAsync(
         string email,
         string password,

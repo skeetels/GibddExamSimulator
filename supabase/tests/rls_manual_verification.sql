@@ -20,5 +20,5 @@ order by policyname;
 -- Expected:
 -- * anon has no table grants;
 -- * authenticated has SELECT and INSERT only;
--- * two authenticated policies use auth.uid() = user_id;
+-- * the two authenticated policies call is_profile_member(profile_id);
 -- * no UPDATE or DELETE policy exists.

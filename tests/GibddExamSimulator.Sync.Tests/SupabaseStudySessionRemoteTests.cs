@@ -1,5 +1,5 @@
 using System.Net;
-using System.Text.Json;
+using System.Text;
 using GibddExamSimulator.Application.Storage;
 using GibddExamSimulator.Application.StudySessions;
 using GibddExamSimulator.Sync;
@@ -9,62 +9,57 @@ namespace GibddExamSimulator.Sync.Tests;
 public sealed class SupabaseStudySessionRemoteTests
 {
     [Fact]
-    public async Task ExamUpload_IncludesDeviceKindAndInvokesAutomaticTelegramFunction()
+    public async Task ExamUpload_UsesProfileAwareSyncEndpointWithoutClientTelegramCall()
     {
-        var handler = new RecordingHandler(
-            new HttpResponseMessage(HttpStatusCode.Created),
-            new HttpResponseMessage(HttpStatusCode.OK));
+        var handler = new RecordingHandler(Json(HttpStatusCode.OK, """{"disposition":"Uploaded","message":""}"""));
         var remote = CreateRemote(handler);
 
         var result = await remote.UploadAsync(CreateAuth(), CreateSession(StudyMode.Exam));
 
         Assert.Equal(UploadDisposition.Uploaded, result.Disposition);
-        Assert.Equal(2, handler.Requests.Count);
-        Assert.EndsWith("/rest/v1/study_sessions", handler.Requests[0].Uri, StringComparison.Ordinal);
-        Assert.Contains("\"device_kind\":\"MobilePwa\"", handler.Requests[0].Body, StringComparison.Ordinal);
-        Assert.EndsWith("/functions/v1/telegram-report", handler.Requests[1].Uri, StringComparison.Ordinal);
-        Assert.Contains("sessionId", handler.Requests[1].Body, StringComparison.Ordinal);
+        var request = Assert.Single(handler.Requests);
+        Assert.EndsWith("/functions/v1/device-api/sync/push", request.Uri, StringComparison.Ordinal);
+        Assert.Contains("\"deviceKind\":\"MobilePwa\"", request.Body, StringComparison.Ordinal);
+        Assert.DoesNotContain("telegram", request.Uri + request.Body, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("production", request.EnvironmentId);
     }
 
     [Fact]
-    public async Task AndroidExamUpload_UsesDistinctDeviceKindAndSameAutomaticReportEndpoint()
+    public async Task AndroidExamUpload_UsesDistinctDeviceKind()
     {
-        var handler = new RecordingHandler(
-            new HttpResponseMessage(HttpStatusCode.Created),
-            new HttpResponseMessage(HttpStatusCode.OK));
+        var handler = new RecordingHandler(Json(HttpStatusCode.OK, """{"disposition":"Uploaded"}"""));
         var remote = CreateRemote(handler);
 
         await remote.UploadAsync(CreateAuth(), CreateSession(StudyMode.Exam, StudyDeviceKind.AndroidApp));
 
-        Assert.Equal(2, handler.Requests.Count);
-        Assert.Contains("\"device_kind\":\"AndroidApp\"", handler.Requests[0].Body, StringComparison.Ordinal);
-        Assert.EndsWith("/functions/v1/telegram-report", handler.Requests[1].Uri, StringComparison.Ordinal);
+        Assert.Contains("\"deviceKind\":\"AndroidApp\"", Assert.Single(handler.Requests).Body, StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task TrainingUpload_DoesNotInvokeTelegramFunction()
+    public async Task ServerIdempotencyDisposition_IsPreserved()
     {
-        var handler = new RecordingHandler(new HttpResponseMessage(HttpStatusCode.Created));
+        var handler = new RecordingHandler(Json(HttpStatusCode.OK, """{"disposition":"AlreadyExists"}"""));
         var remote = CreateRemote(handler);
 
-        await remote.UploadAsync(CreateAuth(), CreateSession(StudyMode.SmartTen));
+        var result = await remote.UploadAsync(CreateAuth(), CreateSession(StudyMode.SmartTen));
 
+        Assert.Equal(UploadDisposition.AlreadyExists, result.Disposition);
         Assert.Single(handler.Requests);
     }
 
     [Fact]
-    public async Task BusyTelegramDelivery_RemainsInOutboxForAutomaticRetry()
+    public async Task Pull_UsesCursorAndReturnsProfileSessions()
     {
-        var handler = new RecordingHandler(
-            new HttpResponseMessage(HttpStatusCode.Created),
-            new HttpResponseMessage(HttpStatusCode.Accepted));
+        var session = CreateSession(StudyMode.Exam);
+        var body = $$"""{"items":[{"serverSequence":42,"session":{{System.Text.Json.JsonSerializer.Serialize(session)}}}],"hasMore":false}""";
+        var handler = new RecordingHandler(Json(HttpStatusCode.OK, body));
         var remote = CreateRemote(handler);
 
-        var exception = await Assert.ThrowsAsync<HttpRequestException>(
-            () => remote.UploadAsync(CreateAuth(), CreateSession(StudyMode.Exam)));
+        var page = await remote.PullAsync(CreateAuth(), 41, 100);
 
-        Assert.Equal(HttpStatusCode.Accepted, exception.StatusCode);
-        Assert.Equal(2, handler.Requests.Count);
+        Assert.Single(page.Items);
+        Assert.Equal(42, page.Items[0].ServerSequence);
+        Assert.Contains("sync/pull?after=41&limit=100", Assert.Single(handler.Requests).Uri, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -72,8 +67,10 @@ public sealed class SupabaseStudySessionRemoteTests
     {
         var options = new SupabaseClientOptions
         {
-            ProjectUrl = new Uri("https://example.supabase.co"),
-            PublishableKey = "sb_secret_not_for_clients"
+            ProjectUrl = new Uri("https://test-project.supabase.co"),
+            PublishableKey = "sb_secret_not_for_clients",
+            SyncApiBaseUrl = new Uri("https://test-project.supabase.co/functions/v1/device-api/"),
+            EnvironmentId = "production"
         };
 
         Assert.Throws<InvalidOperationException>(options.Validate);
@@ -82,14 +79,16 @@ public sealed class SupabaseStudySessionRemoteTests
     private static SupabaseStudySessionRemote CreateRemote(HttpMessageHandler handler) => new(
         new SupabaseClientOptions
         {
-            ProjectUrl = new Uri("https://example.supabase.co"),
-            PublishableKey = "sb_publishable_test_value"
+            ProjectUrl = new Uri("https://test-project.supabase.co"),
+            PublishableKey = "sb_publishable_test_value",
+            SyncApiBaseUrl = new Uri("https://test-project.supabase.co/functions/v1/device-api/"),
+            EnvironmentId = "production"
         },
         new HttpClient(handler));
 
     private static AuthSession CreateAuth() => new(
         Guid.NewGuid(),
-        "candidate@example.test",
+        string.Empty,
         "header.payload.signature",
         "refresh",
         DateTimeOffset.UtcNow.AddHours(1));
@@ -120,15 +119,23 @@ public sealed class SupabaseStudySessionRemoteTests
         }
     }.WithComputedHash();
 
+    private static HttpResponseMessage Json(HttpStatusCode status, string body) => new(status)
+    {
+        Content = new StringContent(body, Encoding.UTF8, "application/json")
+    };
+
     private sealed class RecordingHandler(params HttpResponseMessage[] responses) : HttpMessageHandler
     {
         private readonly Queue<HttpResponseMessage> _responses = new(responses);
-        public List<(string Uri, string Body)> Requests { get; } = [];
+        public List<(string Uri, string Body, string? EnvironmentId)> Requests { get; } = [];
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var body = request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(cancellationToken);
-            Requests.Add((request.RequestUri!.ToString(), body));
+            Requests.Add((
+                request.RequestUri!.ToString(),
+                body,
+                request.Headers.TryGetValues("X-Environment-Id", out var values) ? values.Single() : null));
             return _responses.Dequeue();
         }
     }

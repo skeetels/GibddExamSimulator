@@ -60,6 +60,14 @@ public interface IAuthSessionStore
     Task ClearAsync(CancellationToken cancellationToken = default);
 }
 
+public interface ILocalUserScopeMigration
+{
+    Task MergeUserScopeAsync(
+        Guid sourceUserId,
+        Guid targetUserId,
+        CancellationToken cancellationToken = default);
+}
+
 public sealed record LegacyMigrationResult(
     bool BackupCreated,
     int ExamSessionsImported,
@@ -79,6 +87,7 @@ public interface ILegacyStudyMigration
 
 public interface IAuthClient
 {
+    Task<AuthSession> CreateAnonymousAsync(CancellationToken cancellationToken = default);
     Task<AuthSession> SignInWithPasswordAsync(string email, string password, CancellationToken cancellationToken = default);
     Task<AuthSession> RefreshAsync(AuthSession session, CancellationToken cancellationToken = default);
     Task SignOutAsync(AuthSession session, CancellationToken cancellationToken = default);

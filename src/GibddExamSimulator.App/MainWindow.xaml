@@ -22,8 +22,8 @@
       </StackPanel>
     </Grid>
 
-    <!-- Login -->
-    <Grid Visibility="{Binding Page, Converter={StaticResource PageVisibility}, ConverterParameter=Login}">
+    <!-- One-time device pairing -->
+    <Grid Visibility="{Binding Page, Converter={StaticResource PageVisibility}, ConverterParameter=Pairing}">
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="1.2*" />
         <ColumnDefinition Width="*" />
@@ -31,23 +31,28 @@
       <Border Background="{StaticResource Navy}" Padding="64">
         <StackPanel VerticalAlignment="Center" MaxWidth="700">
           <Image Source="Branding/logo.png" Width="128" Height="128" HorizontalAlignment="Left" />
-          <TextBlock Text="Единая история обучения" Foreground="White" FontSize="40" FontWeight="SemiBold" Margin="0,28,0,12" />
-          <TextBlock Text="Один выданный аккаунт хранит экзамены с компьютера и телефона. Пароль не сохраняется; токены защищаются средствами Windows."
+          <TextBlock Text="Синхронизация с телефоном" Foreground="White" FontSize="40" FontWeight="SemiBold" Margin="0,28,0,12" />
+          <TextBlock Text="Откройте приложение «Тренажёр экзамена ГИБДД» на телефоне и отсканируйте QR-код. Это нужно сделать только один раз."
                      Foreground="#E3EEF5" FontSize="21" TextWrapping="Wrap" LineHeight="31" />
+          <TextBlock Text="После привязки результаты, ошибки и слабые темы будут переноситься автоматически."
+                     Foreground="#C9DCE9" FontSize="17" TextWrapping="Wrap" Margin="0,22,0,0" />
         </StackPanel>
       </Border>
-      <Border Grid.Column="1" Background="White" Padding="64">
-        <StackPanel VerticalAlignment="Center" MaxWidth="480">
-          <TextBlock Text="Вход" FontSize="34" FontWeight="SemiBold" />
-          <TextBlock Text="Самостоятельная регистрация отключена" Foreground="{StaticResource Muted}" Margin="0,8,0,28" />
-          <TextBlock Text="Email" Margin="0,0,0,7" />
-          <TextBox Text="{Binding Email, UpdateSourceTrigger=PropertyChanged}" />
-          <TextBlock Text="Пароль" Margin="0,18,0,7" />
-          <PasswordBox x:Name="LoginPasswordBox" />
-          <Button x:Name="LoginButton" Content="Войти" Style="{StaticResource PrimaryButton}"
-                  Margin="0,24,0,0" Click="LoginButton_Click" />
-          <TextBlock Text="{Binding LoginStatus}" Foreground="#B3261E" TextWrapping="Wrap" Margin="0,16,0,0" />
-          <TextBlock Text="{Binding CloudStatus}" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,12,0,0" />
+      <Border Grid.Column="1" Background="White" Padding="48,32">
+        <StackPanel VerticalAlignment="Center" MaxWidth="500" HorizontalAlignment="Center">
+          <Border Width="330" Height="330" Background="White" BorderBrush="{StaticResource Line}" BorderThickness="1" Padding="14">
+            <Grid>
+              <TextBlock Text="Получаем QR-код…" Foreground="{StaticResource Muted}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                         TextWrapping="Wrap" TextAlignment="Center" />
+              <Image Source="{Binding PairingQrImage}" Stretch="Uniform" />
+            </Grid>
+          </Border>
+          <TextBlock Text="{Binding PairingStatus}" FontSize="20" FontWeight="SemiBold" TextAlignment="Center" TextWrapping="Wrap" Margin="0,22,0,0" />
+          <TextBlock Text="{Binding PairingExpires}" Foreground="{StaticResource Muted}" TextAlignment="Center" Margin="0,8,0,0" />
+          <TextBlock Text="Резервный код" Foreground="{StaticResource Muted}" TextAlignment="Center" Margin="0,18,0,4" />
+          <TextBlock Text="{Binding PairingShortCode}" FontFamily="Consolas" FontSize="28" FontWeight="Bold" TextAlignment="Center" />
+          <Button Content="Получить новый QR" Command="{Binding ConnectNewPhoneCommand}" Margin="0,18,0,0" Width="220" />
+          <Button Content="Продолжить пока без телефона" Command="{Binding SkipPairingCommand}" Margin="0,10,0,0" Width="280" />
         </StackPanel>
       </Border>
     </Grid>
@@ -102,10 +107,38 @@
             </Border>
             <Border Background="White" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="6" Padding="26" Margin="0,18,0,0">
               <StackPanel>
-                <TextBlock Text="Синхронизация и Telegram" FontSize="22" FontWeight="SemiBold" />
+                <TextBlock Text="Связь устройств и Telegram" FontSize="22" FontWeight="SemiBold" />
                 <TextBlock Text="{Binding CloudStatus}" TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,10,0,0" />
                 <TextBlock Text="{Binding SyncStatus}" TextWrapping="Wrap" Margin="0,10,0,0" />
-                <Button Content="Синхронизировать сейчас" Command="{Binding SyncNowCommand}" Margin="0,16,0,0" />
+                <TextBlock Text="Подключённые устройства" FontWeight="SemiBold" Margin="0,16,0,0" />
+                <TextBlock Text="{Binding ConnectedDevicesStatus}" TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,6,0,0" />
+                <ItemsControl ItemsSource="{Binding ConnectedDevices}" Margin="0,8,0,0">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <Border BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="4" Padding="10" Margin="0,0,0,6">
+                        <Grid>
+                          <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                          <StackPanel>
+                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding LastActivity}" Foreground="{StaticResource Muted}" FontSize="13" Margin="0,3,0,0" />
+                          </StackPanel>
+                          <Button Grid.Column="1" Content="{Binding ActionCaption}"
+                                  Command="{Binding DataContext.RevokeDeviceCommand, RelativeSource={RelativeSource AncestorType={x:Type Window}}}"
+                                  CommandParameter="{Binding}" Margin="10,0,0,0" VerticalAlignment="Center" />
+                        </Grid>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <WrapPanel Margin="0,16,0,0">
+                  <Button Content="Подключить новый телефон" Command="{Binding ConnectNewPhoneCommand}" Margin="0,0,10,0" />
+                  <Button Content="Подключить Telegram" Command="{Binding ConnectTelegramCommand}" Margin="0,0,10,0" />
+                  <Button Content="Обновить список" Command="{Binding RefreshDevicesCommand}" />
+                </WrapPanel>
+                <WrapPanel Margin="0,10,0,0">
+                  <Button Content="Повторить синхронизацию" Command="{Binding SyncNowCommand}" Margin="0,0,10,0" />
+                  <Button Content="Сбросить синхронизацию" Command="{Binding ResetSynchronizationCommand}" />
+                </WrapPanel>
               </StackPanel>
             </Border>
             <Border Background="White" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="6" Padding="26" Margin="0,18,0,0">
@@ -124,9 +157,8 @@
       </Grid>
       <Border Grid.Row="2" Background="#E6EAED" BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Padding="28,10">
         <Grid>
-          <TextBlock Text="800 вопросов · 40 билетов · 548 JPEG-изображений · версия 2.0.1" VerticalAlignment="Center" Foreground="{StaticResource Muted}" />
+          <TextBlock Text="800 вопросов · 40 билетов · 548 JPEG-изображений · версия 2.0.2" VerticalAlignment="Center" Foreground="{StaticResource Muted}" />
           <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-            <Button Content="Выйти из аккаунта" Command="{Binding SignOutCommand}" Margin="0,0,10,0" />
             <Button Content="Закрыть программу" Command="{Binding ExitCommand}" />
           </StackPanel>
         </Grid>

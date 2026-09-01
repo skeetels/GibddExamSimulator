@@ -11,7 +11,7 @@ using Microsoft.Data.Sqlite;
 
 namespace GibddExamSimulator.Infrastructure.Storage;
 
-public sealed class DesktopStudyStore : ILocalStudyStore, ILegacyStudyMigration
+public sealed class DesktopStudyStore : ILocalStudyStore, ILegacyStudyMigration, ILocalUserScopeMigration
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -130,6 +130,57 @@ public sealed class DesktopStudyStore : ILocalStudyStore, ILegacyStudyMigration
         await write.ExecuteNonQueryAsync(cancellationToken);
         existing = await read.ExecuteScalarAsync(cancellationToken) as string;
         return Guid.TryParse(existing, out var persisted) ? persisted : deviceId;
+    }
+
+    public async Task MergeUserScopeAsync(
+        Guid sourceUserId,
+        Guid targetUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (sourceUserId == Guid.Empty || targetUserId == Guid.Empty || sourceUserId == targetUserId)
+            return;
+        await using var connection = await OpenAsync(cancellationToken);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT COUNT(*)
+              FROM study_sessions_local source
+              JOIN study_sessions_local target
+                ON target.user_id=$target AND target.session_id=source.session_id
+             WHERE source.user_id=$source
+               AND target.payload_sha256 <> source.payload_sha256;
+            """;
+        command.Parameters.AddWithValue("$source", sourceUserId.ToString("D"));
+        command.Parameters.AddWithValue("$target", targetUserId.ToString("D"));
+        if (Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken), CultureInfo.InvariantCulture) != 0)
+            throw new InvalidDataException("Local history contains a session integrity conflict.");
+
+        command.CommandText = """
+            INSERT OR IGNORE INTO study_sessions_local(
+                user_id, session_id, payload_json, payload_sha256, server_seq, origin, created_at_utc)
+            SELECT $target, session_id, payload_json, payload_sha256, server_seq, origin, created_at_utc
+              FROM study_sessions_local WHERE user_id=$source;
+
+            INSERT OR IGNORE INTO study_outbox(
+                user_id, session_id, attempt_count, next_attempt_utc, last_error, created_at_utc)
+            SELECT $target, session_id, attempt_count, next_attempt_utc, last_error, created_at_utc
+              FROM study_outbox WHERE user_id=$source;
+
+            INSERT OR IGNORE INTO active_study_drafts(user_id, payload_json, saved_at_utc)
+            SELECT $target, payload_json, saved_at_utc FROM active_study_drafts WHERE user_id=$source;
+
+            INSERT OR IGNORE INTO learning_profile_cache(user_id, calculated_at_utc, payload_json)
+            SELECT $target, calculated_at_utc, payload_json FROM learning_profile_cache WHERE user_id=$source;
+
+            DELETE FROM study_outbox WHERE user_id=$source;
+            DELETE FROM study_sessions_local WHERE user_id=$source;
+            DELETE FROM active_study_drafts WHERE user_id=$source;
+            DELETE FROM learning_profile_cache WHERE user_id=$source;
+            DELETE FROM study_sync_state WHERE user_id=$source;
+            """;
+        await command.ExecuteNonQueryAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
     }
 
     public async Task SaveCompletedSessionAsync(

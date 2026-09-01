@@ -32,6 +32,7 @@ export type SessionPayload = {
 export type StudySessionRow = {
   session_id: string;
   user_id: string;
+  profile_id?: string;
   payload: SessionPayload;
 };
 
@@ -72,6 +73,14 @@ type TelegramDeliveryRow = {
   updated_at: string;
 };
 
+type TelegramProfileLinkRow = {
+  profile_id: string;
+  telegram_chat_id: number;
+  telegram_username: string | null;
+  linked_at: string;
+  revoked_at: string | null;
+};
+
 type Database = {
   public: {
     Tables: {
@@ -91,6 +100,12 @@ type Database = {
         Row: TelegramDeliveryRow;
         Insert: Partial<TelegramDeliveryRow>;
         Update: Partial<TelegramDeliveryRow>;
+        Relationships: [];
+      };
+      telegram_profile_links: {
+        Row: TelegramProfileLinkRow;
+        Insert: Partial<TelegramProfileLinkRow>;
+        Update: Partial<TelegramProfileLinkRow>;
         Relationships: [];
       };
     };
@@ -454,7 +469,7 @@ export async function handleTelegramReport(
 
   const currentResult = await userClient
     .from("study_sessions")
-    .select("session_id,user_id,payload")
+    .select("session_id,user_id,profile_id,payload")
     .eq("session_id", requestBody.sessionId)
     .maybeSingle();
   if (currentResult.error) {
@@ -482,14 +497,29 @@ export async function handleTelegramReport(
   try {
     const historyResult = await userClient
       .from("study_sessions")
-      .select("session_id,user_id,payload")
+      .select("session_id,user_id,profile_id,payload")
       .eq("mode", "Exam")
       .order("completed_at", { ascending: false })
       .limit(250);
     if (historyResult.error) throw historyResult.error;
 
     const botToken = requiredEnvironmentValue("TELEGRAM_BOT_TOKEN");
-    const chatId = await resolveFixedChatId(admin, botToken);
+    let chatId: string | null = null;
+    if (currentResult.data.profile_id) {
+      const profileLink = await admin.from("telegram_profile_links")
+        .select("telegram_chat_id,telegram_username")
+        .eq("profile_id", currentResult.data.profile_id)
+        .is("revoked_at", null)
+        .maybeSingle();
+      if (
+        !profileLink.error &&
+        profileLink.data?.telegram_username?.toLowerCase() ===
+          FIXED_RECIPIENT_USERNAME
+      ) {
+        chatId = String(profileLink.data.telegram_chat_id);
+      }
+    }
+    chatId ??= await resolveFixedChatId(admin, botToken);
     const sent = await telegramCall<{ message_id: number }>(
       botToken,
       "sendMessage",

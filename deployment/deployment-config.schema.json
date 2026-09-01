@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gibdd-exam-simulator:deployment-config:v1",
+  "title": "GIBDD Exam Simulator public deployment configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "configVersion",
+    "environmentId",
+    "repositoryOwner",
+    "repositoryName",
+    "repositoryUrl",
+    "releaseManifestUrl",
+    "pagesBaseUrl",
+    "syncApiBaseUrl",
+    "supabaseUrl",
+    "supabasePublishableKey",
+    "telegramBotUsername",
+    "configSha256"
+  ],
+  "properties": {
+    "configVersion": { "const": 1 },
+    "environmentId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$" },
+    "repositoryOwner": { "type": "string", "minLength": 1 },
+    "repositoryName": { "type": "string", "minLength": 1 },
+    "repositoryUrl": { "type": "string", "format": "uri", "pattern": "^https://github\\.com/" },
+    "releaseManifestUrl": { "type": "string", "format": "uri", "pattern": "^https://" },
+    "pagesBaseUrl": { "type": "string", "format": "uri", "pattern": "^https://" },
+    "syncApiBaseUrl": { "type": "string", "format": "uri", "pattern": "^https://" },
+    "supabaseUrl": { "type": "string", "format": "uri", "pattern": "^https://[^/]+\\.supabase\\.co$" },
+    "supabasePublishableKey": { "type": "string", "minLength": 20 },
+    "telegramBotUsername": { "type": "string", "pattern": "^[A-Za-z0-9_]{5,32}$" },
+    "configSha256": { "type": "string", "pattern": "^[0-9A-F]{64}$" }
+  }
+}

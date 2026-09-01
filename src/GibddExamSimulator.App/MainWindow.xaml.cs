@@ -81,22 +81,6 @@ public partial class MainWindow : Window
         Activate();
     }
 
-    private async void LoginButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (ViewModel is null)
-            return;
-        LoginButton.IsEnabled = false;
-        try
-        {
-            await ViewModel.SignInAsync(LoginPasswordBox.Password);
-        }
-        finally
-        {
-            LoginPasswordBox.Clear();
-            LoginButton.IsEnabled = true;
-        }
-    }
-
     private async void OnTimerTick(object? sender, EventArgs e)
     {
         if (ViewModel is not null)
@@ -137,10 +121,7 @@ public partial class MainWindow : Window
         }
         else if (e.Key == Key.Enter)
         {
-            if (ViewModel.Page == PageKind.Login)
-                LoginButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            else
-                ViewModel.HandleConfirmShortcut();
+            ViewModel.HandleConfirmShortcut();
             e.Handled = true;
         }
         else if (e.Key == Key.Left)

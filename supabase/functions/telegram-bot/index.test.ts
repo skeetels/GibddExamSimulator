@@ -1,4 +1,8 @@
-import { commandFromText, isOwnerPrivateMessage } from "./index.ts";
+import {
+  commandFromText,
+  isOwnerPrivateMessage,
+  startPayload,
+} from "./index.ts";
 
 Deno.test("only the fixed owner private account is accepted", () => {
   if (
@@ -24,6 +28,19 @@ Deno.test("only the fixed owner private account is accepted", () => {
     })
   ) {
     throw new Error("A group chat must not be accepted.");
+  }
+});
+
+Deno.test("start accepts only a bounded one-time profile link token", () => {
+  const token = "A".repeat(43);
+  if (startPayload(`/start ${token}`) !== token) {
+    throw new Error("Valid one-time token was not parsed.");
+  }
+  if (
+    startPayload("/start short") !== null ||
+    startPayload(`/stats ${token}`) !== null
+  ) {
+    throw new Error("Invalid start payload was accepted.");
   }
 });
 

@@ -6,11 +6,7 @@
 
 <section class="page-title"><span class="eyebrow">СТАТИСТИКА</span><h1>Прогресс</h1><p>@State.AccountCaption</p></section>
 
-@if (!State.CanStudy)
-{
-    <section class="notice"><p>Войдите, чтобы увидеть общую историю.</p><button class="primary" @onclick="GoToLogin">Войти</button></section>
-}
-else
+@if (State.CanStudy)
 {
     <section class="metric-grid large">
         <article><span>Все сессии</span><strong>@State.SessionCount</strong></article>
@@ -28,7 +24,14 @@ else
         <span class="eyebrow">СИНХРОНИЗАЦИЯ</span>
         <h2>@State.DeviceCaption</h2>
         <p>@(string.IsNullOrWhiteSpace(State.SyncStatus) ? State.Status : State.SyncStatus)</p>
-        <button class="secondary wide" @onclick="SyncAsync">Синхронизировать</button>
+        @if (!State.IsLinked && State.IsCloudConfigured)
+        {
+            <p>Телефон не подключён. Вернитесь на главную и отсканируйте QR-код компьютера.</p>
+        }
+        else if (State.SyncStatus.Contains("Не удалось", StringComparison.OrdinalIgnoreCase))
+        {
+            <button class="secondary wide" @onclick="SyncAsync">Повторить</button>
+        }
     </section>
 
     <section class="section-card">
@@ -39,20 +42,10 @@ else
         </div>
     </section>
 
-    @if (State.IsAuthenticated)
-    {
-        <button class="text-button danger wide signout" @onclick="SignOutAsync">Выйти из аккаунта</button>
-    }
+    <button class="text-button wide" @onclick="State.ConnectTelegramAsync">Подключить Telegram</button>
 }
 
 @code {
     private async Task SyncAsync() => await State.SyncAsync();
 
-    private async Task SignOutAsync()
-    {
-        await State.SignOutAsync();
-        Navigation.NavigateTo("/login");
-    }
-
-    private void GoToLogin() => Navigation.NavigateTo("/login");
 }

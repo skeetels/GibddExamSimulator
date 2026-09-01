@@ -5,7 +5,7 @@ namespace GibddExamSimulator.ViewModels;
 public enum PageKind
 {
     Loading,
-    Login,
+    Pairing,
     Home,
     Ready,
     Exam,
@@ -63,3 +63,10 @@ public sealed record ReviewErrorItem(
     string Explanation,
     string? ImagePath,
     long ResponseTimeMs);
+
+public sealed record PairedDeviceItem(
+    Guid DeviceId,
+    string Title,
+    string LastActivity,
+    bool IsCurrentDevice,
+    string ActionCaption);

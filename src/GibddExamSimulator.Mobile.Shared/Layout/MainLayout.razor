@@ -36,11 +36,36 @@
     {
         State.Changed += OnStateChanged;
         _ = InitializeStateAsync();
+        _ = RunForegroundSyncAsync(foregroundCancellation.Token);
     }
+
+    private readonly CancellationTokenSource foregroundCancellation = new();
 
     private async Task InitializeStateAsync() => await State.InitializeAsync();
 
     private void OnStateChanged() => _ = InvokeAsync(StateHasChanged);
 
-    public void Dispose() => State.Changed -= OnStateChanged;
+    private async Task RunForegroundSyncAsync(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromMinutes(2));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                if (State.IsInitialized && State.CanStudy && State.ActiveSession is null)
+                    await State.SyncAsync(cancellationToken);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Layout was disposed.
+        }
+    }
+
+    public void Dispose()
+    {
+        foregroundCancellation.Cancel();
+        foregroundCancellation.Dispose();
+        State.Changed -= OnStateChanged;
+    }
 }

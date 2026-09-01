@@ -23,11 +23,27 @@ public sealed class MainActivity : MauiAppCompatActivity
     {
         base.OnCreate(savedInstanceState);
         OnBackPressedDispatcher.AddCallback(this, new ActiveSessionBackCallback(this));
+        Connectivity.ConnectivityChanged += OnConnectivityChanged;
     }
 
     protected override void OnResume()
     {
         base.OnResume();
+        var state = IPlatformApplication.Current?.Services.GetService<MobileAppState>();
+        if (state is not null)
+            _ = state.ResumeAsync();
+    }
+
+    protected override void OnDestroy()
+    {
+        Connectivity.ConnectivityChanged -= OnConnectivityChanged;
+        base.OnDestroy();
+    }
+
+    private static void OnConnectivityChanged(object? sender, ConnectivityChangedEventArgs e)
+    {
+        if (e.NetworkAccess != NetworkAccess.Internet)
+            return;
         var state = IPlatformApplication.Current?.Services.GetService<MobileAppState>();
         if (state is not null)
             _ = state.ResumeAsync();

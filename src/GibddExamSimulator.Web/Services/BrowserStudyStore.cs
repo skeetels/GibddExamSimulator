@@ -1,11 +1,16 @@
 using GibddExamSimulator.Application.Learning;
 using GibddExamSimulator.Application.Storage;
 using GibddExamSimulator.Application.StudySessions;
+using GibddExamSimulator.Application.Synchronization;
 using Microsoft.JSInterop;
 
 namespace GibddExamSimulator.Web.Services;
 
-public sealed class BrowserStudyStore(IJSRuntime javascript) : ILocalStudyStore, IAuthSessionStore
+public sealed class BrowserStudyStore(IJSRuntime javascript) :
+    ILocalStudyStore,
+    IAuthSessionStore,
+    IDeviceLinkStateStore,
+    ILocalUserScopeMigration
 {
     private const string DeviceKey = "device-id";
 
@@ -26,6 +31,28 @@ public sealed class BrowserStudyStore(IJSRuntime javascript) : ILocalStudyStore,
         var created = Guid.NewGuid();
         await javascript.InvokeVoidAsync("gibddStorage.put", cancellationToken, "meta", DeviceKey, created.ToString("D"));
         return created;
+    }
+
+    public async Task MergeUserScopeAsync(
+        Guid sourceUserId,
+        Guid targetUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (sourceUserId == Guid.Empty || targetUserId == Guid.Empty || sourceUserId == targetUserId)
+            return;
+        var sessions = await GetAllAsync<SessionRecord>("sessions", cancellationToken);
+        var target = sessions.Where(item => item.UserId == targetUserId).ToDictionary(item => item.SessionId);
+        foreach (var source in sessions.Where(item => item.UserId == sourceUserId))
+        {
+            if (target.TryGetValue(source.SessionId, out var existing) &&
+                !string.Equals(existing.PayloadSha256, source.PayloadSha256, StringComparison.OrdinalIgnoreCase))
+                throw new StudySessionIntegrityException(source.SessionId);
+        }
+        await javascript.InvokeVoidAsync(
+            "gibddStorage.mergeUserScope",
+            cancellationToken,
+            sourceUserId.ToString("D"),
+            targetUserId.ToString("D"));
     }
 
     public async Task SaveCompletedSessionAsync(
@@ -186,13 +213,22 @@ public sealed class BrowserStudyStore(IJSRuntime javascript) : ILocalStudyStore,
         (await GetSyncRecordAsync(userId, cancellationToken))?.LastSuccessfulSyncUtc;
 
     public async Task<AuthSession?> LoadAsync(CancellationToken cancellationToken = default) =>
-        await javascript.InvokeAsync<AuthSession?>("gibddStorage.get", cancellationToken, "auth", "current");
+        await javascript.InvokeAsync<AuthSession?>("gibddStorage.secureGet", cancellationToken, "auth", "current");
 
     public async Task SaveAsync(AuthSession session, CancellationToken cancellationToken = default) =>
-        await javascript.InvokeVoidAsync("gibddStorage.put", cancellationToken, "auth", "current", session);
+        await javascript.InvokeVoidAsync("gibddStorage.securePut", cancellationToken, "auth", "current", session);
 
     public async Task ClearAsync(CancellationToken cancellationToken = default) =>
-        await javascript.InvokeVoidAsync("gibddStorage.delete", cancellationToken, "auth", "current");
+        await javascript.InvokeVoidAsync("gibddStorage.secureDelete", cancellationToken, "auth", "current");
+
+    async Task<DeviceLinkState?> IDeviceLinkStateStore.LoadAsync(CancellationToken cancellationToken) =>
+        await javascript.InvokeAsync<DeviceLinkState?>("gibddStorage.get", cancellationToken, "meta", "device-link");
+
+    async Task IDeviceLinkStateStore.SaveAsync(DeviceLinkState state, CancellationToken cancellationToken) =>
+        await javascript.InvokeVoidAsync("gibddStorage.put", cancellationToken, "meta", "device-link", state);
+
+    async Task IDeviceLinkStateStore.ClearAsync(CancellationToken cancellationToken) =>
+        await javascript.InvokeVoidAsync("gibddStorage.delete", cancellationToken, "meta", "device-link");
 
     private async Task<SessionRecord?> GetSessionRecordAsync(string key, CancellationToken cancellationToken) =>
         await javascript.InvokeAsync<SessionRecord?>("gibddStorage.get", cancellationToken, "sessions", key);

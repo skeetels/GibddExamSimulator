@@ -1,35 +1,36 @@
 # Протокол синхронизации Windows, Android и PWA
 
-## Идентификаторы и формат
+## Каноническая сессия
 
-Каждая установка один раз создаёт случайный deviceId. Он не является hardware fingerprint. Каждая завершённая попытка получает UUID sessionId и сериализуется как StudySessionEnvelope schemaVersion 1 с deviceKind, временными метками UTC, bankVersion, bankSha256, rulesProfile, orderedQuestionIds, answer events и summary.
+`StudySessionEnvelope` schemaVersion 1 содержит `sessionId`, `deviceId`, `deviceKind`, mode, UTC start/finish, bank/rules versions, порядок вопросов, ответы, correctness, длительности и итог. `PayloadSha256` вычисляется из детерминированного canonical JSON; completed session не редактируется.
 
-Канонический payload сортирует ответы по sequenceNumber и legacy aggregates по questionId, нормализует UTC и SHA-256 банка, после чего вычисляет PayloadSha256. Изменение deviceKind также меняет hash.
+## Локальная атомарность
 
-## Локальная транзакция
+Windows/Android используют SQLite, PWA — одну IndexedDB transaction. Завершение сначала сохраняет immutable session и outbox, затем удаляет draft. Сбой процесса оставляет либо обе записи, либо ни одной. Draft не отправляется на сервер.
 
-Сначала клиент атомарно:
+## API v1
 
-1. вставляет неизменяемую завершённую сессию;
-2. добавляет ссылку на неё в outbox;
-3. удаляет draft только после успешного сохранения результата.
+Клиенты обращаются только к заранее встроенному `device-api`:
 
-Windows и Android используют DesktopStudyStore/SQLite. PWA выполняет эквивалентную транзакцию IndexedDB. Активный draft сохраняется после старта, подтверждения ответа, перехода тренировки и запуска дополнительного блока.
+- `POST /identity/bootstrap`;
+- `POST /sync/push`;
+- `GET /sync/pull?after=REVISION&limit=N`;
+- pairing/device/Telegram endpoints.
 
-## Push
+JWT определяет anonymous device membership. Service-role остаётся внутри Edge Function. Push сверяет membership по `deviceId`, банк и payload hashes; повтор того же `sessionId`/hash возвращает `AlreadyExists`, другой hash — `IntegrityConflict`. Pull возвращает только общий `profile_id`, строго после cursor, по возрастанию `server_seq`.
 
-SyncCoordinator читает due-записи outbox по порядку. SupabaseStudySessionRemote выполняет INSERT в study_sessions с пользовательским JWT. При конфликте session_id серверная копия читается: одинаковый payload_sha256 означает идемпотентный retry, отличающийся — конфликт данных. Успешная запись удаляется из outbox. Временная ошибка увеличивает attempt_count и назначает следующий retry.
+## Merge
 
-Экзамен после upload автоматически вызывает telegram-report. HTTP 202/5xx считается незавершённой доставкой, поэтому outbox остаётся. Тренировки Telegram не вызывают.
+При первом hidden-auth локальный scope `deviceId` мигрирует в scope `auth.uid()` с проверкой content hash. После QR server profile меняется, но локальные сессии не удаляются: обе стороны повторно отправляют append-only историю. Одинаковые UUID/hash дедуплицируются, разные UUID объединяются, агрегированный профиль пересчитывается из всех завершённых сессий.
 
-## Pull
+## Триггеры
 
-Клиент запрашивает строки текущего user_id с server_seq больше локального курсора. Каждая сессия валидируется и проверяется по hash. Вся страница вставляется вместе с новым курсором в одной транзакции. Если применение не завершилось, старый курсор сохраняется, и страница безопасно повторится.
+Push выполняется после завершения, запуска приложения, восстановления сети и retry scheduler. Pull — при запуске, перед новым ПК-экзаменом, после pairing, после push, при resume и каждые две минуты в foreground mobile UI. Предэкзаменационный pull ограничен пятью секундами, после чего экзамен безопасно использует локальную историю.
 
-## Объединённый профиль
+## Offline и retry
 
-LearningProfileBuilder дедуплицирует sessionId и не зависит от порядка строк. Ошибка Android поэтому участвует в рейтинге вопросов/билетов/блоков Windows и PWA; обратный сценарий идентичен. Селектор следующего экзамена и режимы Умные 10, Работа над ошибками и Слабые темы строятся после bounded pre-session sync.
+Сеть не нужна для уже установленного банка и локального экзамена. Due outbox использует exponential backoff с jitter; повтор не создаёт дубль. Пользователь видит только понятный статус `Офлайн — отправим позже` либо `Синхронизировано`, без endpoint-настроек. Курсор обновляется в одной транзакции с принятой страницей.
 
-## Безопасность
+## Telegram
 
-RLS разрешает authenticated-пользователю SELECT и INSERT только собственных study_sessions. UPDATE/DELETE клиенту не выдаются. Service role используется только внутри Edge Functions. Пароль не сохраняется: Windows защищает refresh token DPAPI, Android — SecureStorage/Android Keystore, PWA — локальным auth store с ограничениями браузера.
+Server insert экзамена создаёт durable delivery row и вызывает `telegram-report`. Telegram failure не изменяет study session. Delivery lock и `sessionId` делают отчёт идемпотентным. Основной перенос прогресса всегда идёт через Postgres/API, а не через Telegram или GitHub.

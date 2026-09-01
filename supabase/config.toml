@@ -11,7 +11,8 @@ major_version = 17
 
 [auth]
 enabled = true
-enable_signup = false
+enable_signup = true
+enable_anonymous_sign_ins = true
 site_url = "http://localhost:5000"
 additional_redirect_urls = []
 jwt_expiry = 3600
@@ -26,4 +27,10 @@ double_confirm_changes = true
 verify_jwt = true
 
 [functions.telegram-bot]
+verify_jwt = false
+
+[functions.telegram-delivery-worker]
+verify_jwt = false
+
+[functions.device-api]
 verify_jwt = false

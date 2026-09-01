@@ -6,11 +6,7 @@
 
 <section class="page-title"><span class="eyebrow">ТРЕНИРОВКИ</span><h1>Как будем учиться?</h1><p>История общая с компьютером и учитывается при следующем экзамене.</p></section>
 
-@if (!State.CanStudy)
-{
-    <section class="notice"><p>Сначала войдите в аккаунт.</p><button class="primary" @onclick="GoToLogin">Войти</button></section>
-}
-else
+@if (State.CanStudy)
 {
     <section class="mode-list">
         <button @onclick="() => StartAsync(StudyMode.SmartTen)"><strong>Умные 10</strong><span>Ошибки, просроченные и сложные вопросы + немного новых</span></button>
@@ -55,5 +51,4 @@ else
         }
     }
 
-    private void GoToLogin() => Navigation.NavigateTo("/login");
 }

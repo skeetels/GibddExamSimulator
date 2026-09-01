@@ -1,7 +1,9 @@
 using GibddExamSimulator.Application.Storage;
+using GibddExamSimulator.Application.Synchronization;
 using GibddExamSimulator.Infrastructure.Storage;
 using GibddExamSimulator.Mobile.Shared.Services;
 using Microsoft.Extensions.Logging;
+using ZXing.Net.Maui.Controls;
 
 namespace GibddExamSimulator.Android;
 
@@ -10,7 +12,7 @@ public static class MauiProgram
     public static MauiApp CreateMauiApp()
     {
         var builder = MauiApp.CreateBuilder();
-        builder.UseMauiApp<App>();
+        builder.UseMauiApp<App>().UseBarcodeReader();
         builder.Services.AddMauiBlazorWebView();
 
         builder.Services.AddSingleton(_ =>
@@ -22,10 +24,12 @@ public static class MauiProgram
         builder.Services.AddSingleton<ILocalStudyStore>(services => services.GetRequiredService<DesktopStudyStore>());
         builder.Services.AddSingleton<AndroidAuthSessionStore>();
         builder.Services.AddSingleton<IAuthSessionStore>(services => services.GetRequiredService<AndroidAuthSessionStore>());
+        builder.Services.AddSingleton<IDeviceLinkStateStore>(services => services.GetRequiredService<AndroidAuthSessionStore>());
         builder.Services.AddSingleton<IMobileConfigurationProvider, AndroidConfigurationProvider>();
         builder.Services.AddSingleton<IMobileQuestionBankLoader, AndroidQuestionBankLoader>();
         builder.Services.AddSingleton<IMobileOfflinePackageService, AndroidOfflinePackageService>();
         builder.Services.AddSingleton<IMobilePlatform, AndroidMobilePlatform>();
+        builder.Services.AddSingleton<IMobileQrScanner, AndroidQrScanner>();
         builder.Services.AddSingleton<MobileAppState>();
 
 #if DEBUG

@@ -8,6 +8,7 @@
     <WasmFingerprintAssets>false</WasmFingerprintAssets>
     <StaticWebAssetsFingerprintContent>false</StaticWebAssetsFingerprintContent>
     <ServiceWorkerAssetsManifest>service-worker-assets.js</ServiceWorkerAssetsManifest>
+    <DeploymentPython Condition="'$(DeploymentPython)' == ''">python</DeploymentPython>
   </PropertyGroup>
 
   <ItemGroup>
@@ -26,7 +27,7 @@
     <Content Remove="wwwroot/logo.png" />
     <Content Remove="wwwroot/question-bank/ab/**/*" />
 
-    <StaticWebAsset Include="../../assets/branding/logo-master.png">
+    <StaticWebAsset Include="../../assets/branding/logo-master-v2.png">
       <SourceId>$(PackageId)</SourceId>
       <SourceType>Package</SourceType>
       <ContentRoot>$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)/../../assets/branding'))</ContentRoot>
@@ -42,7 +43,7 @@
       <Integrity></Integrity>
       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-      <OriginalItemSpec>../../assets/branding/logo-master.png</OriginalItemSpec>
+      <OriginalItemSpec>../../assets/branding/logo-master-v2.png</OriginalItemSpec>
     </StaticWebAsset>
 
     <StaticWebAsset Include="../../assets/question-bank/ab/**/*">
@@ -68,5 +69,11 @@
   <ItemGroup>
     <ServiceWorker Include="wwwroot\service-worker.js" PublishedContent="wwwroot\service-worker.published.js" />
   </ItemGroup>
+
+  <Target Name="ValidateProductionDeploymentConfig"
+          BeforeTargets="PrepareForBuild"
+          Condition="'$(Configuration)' == 'Release' and '$(SkipDeploymentConfigValidation)' != 'true'">
+    <Exec Command="&quot;$(DeploymentPython)&quot; &quot;$(MSBuildProjectDirectory)\..\..\tools\validate_deployment_config.py&quot; --config &quot;$(MSBuildProjectDirectory)\wwwroot\client-settings.json&quot;" />
+  </Target>
 
 </Project>
