@@ -1,0 +1,26 @@
+name: Recover fixed Telegram owner
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: telegram-delivery-worker
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Recover the previously confirmed owner and drain reports
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
+          TELEGRAM_DELIVERY_WORKER_SECRET: ${{ secrets.TELEGRAM_DELIVERY_WORKER_SECRET }}
+          TELEGRAM_OWNER_USERNAME: skeetels
+          TELEGRAM_WEBHOOK_URL: ${{ vars.SUPABASE_URL }}/functions/v1/telegram-bot
+          TELEGRAM_DELIVERY_WORKER_URL: ${{ vars.SUPABASE_URL }}/functions/v1/telegram-delivery-worker
+        run: python tools/recover_telegram_owner.py
