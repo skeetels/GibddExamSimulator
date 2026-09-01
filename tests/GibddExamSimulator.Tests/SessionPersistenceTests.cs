@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using GibddExamSimulator.Application.Learning;
+using GibddExamSimulator.Application.Storage;
 using GibddExamSimulator.Application.StudySessions;
 using GibddExamSimulator.Database;
 using GibddExamSimulator.Infrastructure.Storage;
@@ -40,6 +41,95 @@ public sealed class SessionPersistenceTests
             Assert.Equal(session.SessionId, pending.SessionId);
             await store.MarkOutboxSucceededAsync(user, session.SessionId);
             Assert.Empty(await store.GetPendingOutboxAsync(user, 10, DateTimeOffset.UtcNow.AddMinutes(1)));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task DesktopStore_ProfileChangeResetsCursorAndSameProfileKeepsIt()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "gibdd-v2-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var store = new DesktopStudyStore(Path.Combine(root, "study.db"));
+            await store.InitializeAsync();
+            var userId = Guid.NewGuid();
+            var firstProfile = Guid.NewGuid();
+            var secondProfile = Guid.NewGuid();
+
+            // A pre-2.0.4 cursor has no profile identity and must be repaired once.
+            await store.ApplyRemotePageAsync(userId, [], 42);
+            await store.PrepareProfileSyncAsync(userId, firstProfile);
+            Assert.Equal(0, await store.GetServerCursorAsync(userId));
+
+            await store.ApplyRemotePageAsync(userId, [], 42);
+            await store.PrepareProfileSyncAsync(userId, firstProfile);
+            Assert.Equal(42, await store.GetServerCursorAsync(userId));
+
+            await store.PrepareProfileSyncAsync(userId, secondProfile);
+            Assert.Equal(0, await store.GetServerCursorAsync(userId));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task TwoDevices_ReplayOneProfileAndProduceIdenticalProblemTickets()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "gibdd-v2-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var desktop = new DesktopStudyStore(Path.Combine(root, "desktop.db"));
+            var phone = new DesktopStudyStore(Path.Combine(root, "phone.db"));
+            await desktop.InitializeAsync();
+            await phone.InitializeAsync();
+            var desktopUser = Guid.NewGuid();
+            var phoneUser = Guid.NewGuid();
+            var linkedProfile = Guid.NewGuid();
+
+            var desktopExam = CreateSession(StudyDeviceKind.WindowsDesktop, isCorrect: false);
+            var phoneExam = (CreateSession(StudyDeviceKind.AndroidApp, isCorrect: false) with
+            {
+                SessionId = Guid.NewGuid(),
+                StartedAtUtc = desktopExam.StartedAtUtc.AddHours(1),
+                CompletedAtUtc = desktopExam.CompletedAtUtc.AddHours(1),
+                OrderedQuestionIds = [161],
+                Answers =
+                [
+                    desktopExam.Answers[0] with
+                    {
+                        TicketNumber = 9,
+                        QuestionId = 161,
+                        AnsweredAtUtc = desktopExam.StartedAtUtc.AddHours(1).AddSeconds(5)
+                    }
+                ],
+                PayloadSha256 = string.Empty
+            }).WithComputedHash();
+
+            await desktop.SaveCompletedSessionAsync(desktopUser, desktopExam);
+            await phone.SaveCompletedSessionAsync(phoneUser, phoneExam);
+            await phone.ApplyRemotePageAsync(phoneUser, [], 900);
+
+            await desktop.PrepareProfileSyncAsync(desktopUser, linkedProfile);
+            await phone.PrepareProfileSyncAsync(phoneUser, linkedProfile);
+            var shared = new[]
+            {
+                new RemoteStudySession(10, desktopExam),
+                new RemoteStudySession(11, phoneExam)
+            };
+            await desktop.ApplyRemotePageAsync(desktopUser, shared, 11);
+            await phone.ApplyRemotePageAsync(phoneUser, shared, 11);
+
+            Assert.Equal(
+                ExamStatistics.GetProblemTickets(await desktop.GetSessionsAsync(desktopUser)),
+                ExamStatistics.GetProblemTickets(await phone.GetSessionsAsync(phoneUser)));
         }
         finally
         {
@@ -194,6 +284,33 @@ public sealed class SessionPersistenceTests
 
         Assert.Equal(1, profile.GetQuestion(1)!.ExposureCount);
         Assert.Null(profile.GetQuestion(2));
+    }
+
+    [Fact]
+    public void ProblemTickets_AreBasedOnTheSameExamHistoryOnEveryDevice()
+    {
+        var exam = CreateSession(StudyDeviceKind.WindowsDesktop, isCorrect: false);
+        var training = (CreateSession(StudyDeviceKind.AndroidApp, isCorrect: false) with
+        {
+            Mode = StudyMode.Ticket,
+            OrderedQuestionIds = [800],
+            Answers =
+            [
+                CreateSession(StudyDeviceKind.AndroidApp, isCorrect: false).Answers[0] with
+                {
+                    TicketNumber = 40,
+                    QuestionId = 800,
+                    QuestionNumber = 20
+                }
+            ],
+            PayloadSha256 = string.Empty
+        }).WithComputedHash();
+
+        var problem = Assert.Single(ExamStatistics.GetProblemTickets([exam, training]));
+
+        Assert.Equal(1, problem.TicketNumber);
+        Assert.Equal(1, problem.ErrorCount);
+        Assert.Equal(1, problem.AttemptCount);
     }
 
     [Fact]

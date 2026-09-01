@@ -65,8 +65,8 @@ public sealed class ZeroConfigUiContractTests
         Assert.Contains("supabase db push", backend, StringComparison.Ordinal);
         Assert.Contains("device-api", backend, StringComparison.Ordinal);
         Assert.Contains("configure_telegram_webhook.py", backend, StringComparison.Ordinal);
-        Assert.Contains("GibddExamSimulator-Setup-2.0.3-win-x64.exe", release, StringComparison.Ordinal);
-        Assert.Contains("GibddExamSimulator-2.0.3-android.apk", release, StringComparison.Ordinal);
+        Assert.Contains("GibddExamSimulator-Setup-2.0.4-win-x64.exe", release, StringComparison.Ordinal);
+        Assert.Contains("GibddExamSimulator-2.0.4-android.apk", release, StringComparison.Ordinal);
         Assert.Contains("pairing-e2e-evidence.zip", release, StringComparison.Ordinal);
         Assert.Contains("validate_production_artifacts.py", release, StringComparison.Ordinal);
         Assert.DoesNotContain("DEV-SIGNED.apk\"", release, StringComparison.Ordinal);

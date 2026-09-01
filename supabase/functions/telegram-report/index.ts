@@ -168,16 +168,19 @@ function isAnswered(answer: AnswerPayload): boolean {
   return answer.selectedAnswer !== null;
 }
 
-export function topProblemLines(
+type AnswerAggregate = {
+  attempts: number;
+  errors: number;
+  elapsedMs: number;
+};
+
+function aggregateAnswers(
   allSessions: StudySessionRow[],
   keySelector: (answer: AnswerPayload) => number | undefined,
-  label: string,
-): string[] {
-  const aggregate = new Map<
-    number,
-    { attempts: number; errors: number; elapsedMs: number }
-  >();
+): Map<number, AnswerAggregate> {
+  const aggregate = new Map<number, AnswerAggregate>();
   for (const row of allSessions) {
+    if (row.payload.mode !== undefined && row.payload.mode !== "Exam") continue;
     for (const answer of row.payload.answers ?? []) {
       if (!isAnswered(answer)) continue;
       const key = keySelector(answer);
@@ -190,13 +193,22 @@ export function topProblemLines(
       aggregate.set(key!, current);
     }
   }
+  return aggregate;
+}
+
+export function topProblemLines(
+  allSessions: StudySessionRow[],
+  keySelector: (answer: AnswerPayload) => number | undefined,
+  label: string,
+): string[] {
+  const aggregate = aggregateAnswers(allSessions, keySelector);
 
   return [...aggregate.entries()]
     .filter(([, value]) => value.errors > 0)
     .sort((left, right) => {
       const leftRate = left[1].errors / left[1].attempts;
       const rightRate = right[1].errors / right[1].attempts;
-      return rightRate - leftRate || right[1].errors - left[1].errors ||
+      return right[1].errors - left[1].errors || rightRate - leftRate ||
         left[0] - right[0];
     })
     .slice(0, 5)
@@ -209,6 +221,22 @@ export function topProblemLines(
         durationText(average)
       }`;
     });
+}
+
+export function allTicketLines(allSessions: StudySessionRow[]): string[] {
+  const aggregate = aggregateAnswers(
+    allSessions,
+    (answer) => answer.ticketNumber,
+  );
+  return Array.from({ length: 40 }, (_, index) => index + 1).map((ticket) => {
+    const value = aggregate.get(ticket);
+    const label = ticket.toString().padStart(2, "0");
+    if (!value || value.attempts === 0) return `• билет ${label}: ответов нет`;
+    const rate = Math.round(value.errors * 100 / value.attempts);
+    return `• билет ${label}: ошибки ${value.errors}/${value.attempts} (${rate}%), всего ${
+      durationText(value.elapsedMs)
+    }, среднее ${durationText(value.elapsedMs / value.attempts)}`;
+  });
 }
 
 export function buildStatisticsCommand(allSessions: StudySessionRow[]): string {
@@ -249,6 +277,9 @@ export function buildMistakesCommand(allSessions: StudySessionRow[]): string {
     "",
     "Билеты:",
     ...(ticketLines.length > 0 ? ticketLines : ["ошибок пока нет"]),
+    "",
+    "Все 40 билетов:",
+    ...allTicketLines(allSessions),
     "",
     "Тематические блоки:",
     ...(blockLines.length > 0 ? blockLines : ["ошибок пока нет"]),
@@ -327,6 +358,8 @@ export function buildReport(
   lines.push(
     ...(tickets.length > 0 ? tickets : ["недостаточно ошибок для анализа"]),
   );
+  lines.push("", "Все 40 билетов — общая синхронизированная история:");
+  lines.push(...allTicketLines(allSessions));
   lines.push("", "Самые проблемные тематические блоки:");
   const blocks = topProblemLines(
     allSessions,

@@ -119,6 +119,8 @@ public sealed class MobileAppState(
                     UserId = _auth.UserId;
                     if (store is ILocalUserScopeMigration migration)
                         await migration.MergeUserScopeAsync(DeviceId, UserId);
+                    if (LinkState.ProfileId is Guid profileId)
+                        await store.PrepareProfileSyncAsync(UserId, profileId);
                     Status = connection.IsOffline
                         ? "Офлайн — результат будет отправлен позже."
                         : IsLinked
@@ -194,6 +196,7 @@ public sealed class MobileAppState(
                 invitation.OneTimeSecret,
                 cancellationToken);
             LinkState = await _connection.ApplyPairingAsync(LinkState, completed, cancellationToken);
+            await store.PrepareProfileSyncAsync(UserId, completed.ProfileId, cancellationToken);
             PairingStatus = "Устройства связаны";
             Status = "Теперь результаты будут синхронизироваться автоматически.";
             await SyncAsync(cancellationToken);
@@ -233,6 +236,7 @@ public sealed class MobileAppState(
                 shortCode,
                 cancellationToken);
             LinkState = await _connection.ApplyPairingAsync(LinkState, completed, cancellationToken);
+            await store.PrepareProfileSyncAsync(UserId, completed.ProfileId, cancellationToken);
             PairingStatus = "Устройства связаны";
             Status = "Теперь результаты будут синхронизироваться автоматически.";
             await SyncAsync(cancellationToken);
@@ -349,6 +353,8 @@ public sealed class MobileAppState(
             UserId = _auth.UserId;
             if (store is ILocalUserScopeMigration newScopeMigration)
                 await newScopeMigration.MergeUserScopeAsync(DeviceId, UserId, cancellationToken);
+            if (LinkState.ProfileId is Guid profileId)
+                await store.PrepareProfileSyncAsync(UserId, profileId, cancellationToken);
             SavedDraft = await store.GetDraftAsync(UserId, cancellationToken);
             await RefreshStatisticsAsync();
             PairingStatus = "Синхронизация сброшена. Отсканируйте новый QR-код с компьютера.";
@@ -602,6 +608,8 @@ public sealed class MobileAppState(
                 UserId = _auth.UserId;
                 if (store is ILocalUserScopeMigration migration)
                     await migration.MergeUserScopeAsync(previousUserId, UserId);
+                if (LinkState.ProfileId is Guid profileId)
+                    await store.PrepareProfileSyncAsync(UserId, profileId);
                 if (!connection.IsOffline)
                     _ = RefreshConnectedDevicesAsync();
             }
@@ -700,13 +708,8 @@ public sealed class MobileAppState(
             .Where(answer => answer.SelectedAnswer.HasValue)
             .ToArray();
         AccuracyPercent = answers.Length == 0 ? 0 : answers.Count(answer => answer.IsCorrect) * 100.0 / answers.Length;
-        var weak = answers.Where(answer => !answer.IsCorrect)
-            .GroupBy(answer => answer.TicketNumber)
-            .Select(group => new { Ticket = group.Key, Errors = group.Count() })
-            .OrderByDescending(item => item.Errors)
-            .ThenBy(item => item.Ticket)
-            .Take(3)
-            .Select(item => $"№{item.Ticket} ({item.Errors})")
+        var weak = ExamStatistics.GetProblemTickets(sessions)
+            .Select(item => $"№{item.TicketNumber} ({item.ErrorCount})")
             .ToArray();
         WeakTickets = weak.Length == 0 ? "Ошибок пока нет" : string.Join(", ", weak);
     }

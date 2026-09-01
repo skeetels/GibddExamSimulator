@@ -1,4 +1,5 @@
 import {
+  allTicketLines,
   buildHelpCommand,
   buildMistakesCommand,
   buildReport,
@@ -157,11 +158,49 @@ Deno.test("reports ignore unanswered questions after an early exam failure", () 
   assertIncludes(report, "Вопросы: 1/20");
   assertIncludes(report, "Ошибки: 1");
   assertIncludes(report, "билет 34: ошибок 1/1");
-  if (report.includes("билет 11")) {
+  assertIncludes(report, "билет 11: ответов нет");
+  if (report.includes("билет 11: ошибки")) {
     throw new Error("An unanswered question leaked into problem statistics.");
   }
   assertIncludes(
     buildStatisticsCommand([session]),
     "Точность ответов: 0% (0/1)",
   );
+});
+
+Deno.test("automatic report contains a compact line for every official ticket", () => {
+  const sessions = Array.from({ length: 40 }, (_, index) =>
+    examRow({
+      mode: "Exam",
+      outcome: index === 0 ? "Failed" : "Passed",
+      answers: [{
+        ticketNumber: index + 1,
+        questionNumber: 1,
+        thematicBlockId: index + 1,
+        selectedAnswer: 1,
+        isCorrect: index !== 0,
+        responseTimeMs: (index + 1) * 1_000,
+      }],
+      summary: {
+        questionCount: 20,
+        answeredCount: 20,
+        correctCount: index === 0 ? 19 : 20,
+        errorCount: index === 0 ? 1 : 0,
+        elapsedMs: 100_000,
+      },
+    }));
+
+  const breakdown = allTicketLines(sessions);
+  if (breakdown.length !== 40) throw new Error("Expected all 40 tickets.");
+  assertIncludes(breakdown[0], "билет 01: ошибки 1/1 (100%)");
+  assertIncludes(breakdown[39], "билет 40: ошибки 0/1 (0%)");
+
+  const report = buildReport(sessions[0], sessions);
+  assertIncludes(report, "Все 40 билетов — общая синхронизированная история:");
+  assertIncludes(report, "билет 40: ошибки 0/1 (0%)");
+  if (report.includes("…отчёт сокращён")) {
+    throw new Error(
+      `The complete 40-ticket report was truncated (${report.length}).`,
+    );
+  }
 });

@@ -15,8 +15,8 @@ public sealed class AndroidPackagingContractTests
             "GibddExamSimulator.Android.csproj"));
 
         Assert.Contains("<ApplicationId>app.gibddexamsimulator.mobile</ApplicationId>", project, StringComparison.Ordinal);
-        Assert.Contains("<ApplicationDisplayVersion>2.0.3</ApplicationDisplayVersion>", project, StringComparison.Ordinal);
-        Assert.Contains("<ApplicationVersion>203</ApplicationVersion>", project, StringComparison.Ordinal);
+        Assert.Contains("<ApplicationDisplayVersion>2.0.4</ApplicationDisplayVersion>", project, StringComparison.Ordinal);
+        Assert.Contains("<ApplicationVersion>204</ApplicationVersion>", project, StringComparison.Ordinal);
         Assert.Contains("<SupportedOSPlatformVersion>26.0</SupportedOSPlatformVersion>", project, StringComparison.Ordinal);
         Assert.Contains("assets/question-bank/ab/**/*", project, StringComparison.Ordinal);
         Assert.Contains("<AndroidPackageFormats>apk</AndroidPackageFormats>", project, StringComparison.Ordinal);

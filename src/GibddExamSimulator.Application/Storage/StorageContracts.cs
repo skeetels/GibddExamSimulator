@@ -42,6 +42,7 @@ public interface ILocalStudyStore
     Task<IReadOnlyList<StudyOutboxItem>> GetPendingOutboxAsync(Guid userId, int limit, DateTimeOffset nowUtc, CancellationToken cancellationToken = default);
     Task MarkOutboxSucceededAsync(Guid userId, Guid sessionId, CancellationToken cancellationToken = default);
     Task MarkOutboxFailedAsync(Guid userId, Guid sessionId, int previousAttemptCount, string error, DateTimeOffset nextAttemptAtUtc, CancellationToken cancellationToken = default);
+    Task PrepareProfileSyncAsync(Guid userId, Guid profileId, CancellationToken cancellationToken = default);
     Task<long> GetServerCursorAsync(Guid userId, CancellationToken cancellationToken = default);
     Task ApplyRemotePageAsync(Guid userId, IReadOnlyList<RemoteStudySession> items, long newCursor, CancellationToken cancellationToken = default);
     Task SaveDraftAsync(Guid userId, ActiveSessionDraft draft, CancellationToken cancellationToken = default);

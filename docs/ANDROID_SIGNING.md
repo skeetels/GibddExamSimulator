@@ -24,8 +24,8 @@ release.yml декодирует keystore только во временный R
 
 Храните исходный keystore и пароли в резервной защищённой копии. Потеря ключа лишит возможности устанавливать обновления поверх production APK.
 
-## Политика Release 2.0.3
+## Политика Release 2.0.4
 
-Dev-signed APK допустим только как CI smoke artifact и всегда имеет суффикс `DEV-SIGNED`. Публичный Release 2.0.3 без всех четырёх signing secrets завершается ошибкой; asset `GibddExamSimulator-2.0.3-android.apk` всегда подписан постоянным production keystore.
+Dev-signed APK допустим только как CI smoke artifact и всегда имеет суффикс `DEV-SIGNED`. Публичный Release 2.0.4 без всех четырёх signing secrets завершается ошибкой; asset `GibddExamSimulator-2.0.4-android.apk` всегда подписан постоянным production keystore.
 
 После сборки всегда выполняется apksigner verify --verbose. Пароль, keystore, Bot token, service-role key и GitHub PAT не должны попадать в APK.

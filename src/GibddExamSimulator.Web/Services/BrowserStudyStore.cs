@@ -135,6 +135,25 @@ public sealed class BrowserStudyStore(IJSRuntime javascript) :
         await javascript.InvokeVoidAsync("gibddStorage.put", cancellationToken, "outbox", key, updated);
     }
 
+    public async Task PrepareProfileSyncAsync(
+        Guid userId,
+        Guid profileId,
+        CancellationToken cancellationToken = default)
+    {
+        if (userId == Guid.Empty || profileId == Guid.Empty)
+            throw new ArgumentException("User and profile identifiers must not be empty.");
+        var previous = await GetSyncRecordAsync(userId, cancellationToken);
+        if (previous?.ProfileId == profileId)
+            return;
+        var reset = new SyncRecord(userId, 0, null, profileId);
+        await javascript.InvokeVoidAsync(
+            "gibddStorage.put",
+            cancellationToken,
+            "sync",
+            userId.ToString("D"),
+            reset);
+    }
+
     public async Task<long> GetServerCursorAsync(Guid userId, CancellationToken cancellationToken = default) =>
         (await GetSyncRecordAsync(userId, cancellationToken))?.ServerCursor ?? 0;
 
@@ -166,7 +185,7 @@ public sealed class BrowserStudyStore(IJSRuntime javascript) :
                 item.Session));
         }
         var previous = await GetSyncRecordAsync(userId, cancellationToken);
-        var sync = new SyncRecord(userId, newCursor, previous?.LastSuccessfulSyncUtc);
+        var sync = new SyncRecord(userId, newCursor, previous?.LastSuccessfulSyncUtc, previous?.ProfileId);
         await javascript.InvokeVoidAsync(
             "gibddStorage.applyRemotePage",
             cancellationToken,
@@ -205,7 +224,7 @@ public sealed class BrowserStudyStore(IJSRuntime javascript) :
         CancellationToken cancellationToken = default)
     {
         var previous = await GetSyncRecordAsync(userId, cancellationToken);
-        var record = new SyncRecord(userId, previous?.ServerCursor ?? 0, syncedAtUtc);
+        var record = new SyncRecord(userId, previous?.ServerCursor ?? 0, syncedAtUtc, previous?.ProfileId);
         await javascript.InvokeVoidAsync("gibddStorage.put", cancellationToken, "sync", userId.ToString("D"), record);
     }
 
@@ -261,6 +280,10 @@ public sealed class BrowserStudyStore(IJSRuntime javascript) :
         DateTimeOffset CreatedAtUtc,
         StudySessionEnvelope Session);
 
-    private sealed record SyncRecord(Guid UserId, long ServerCursor, DateTimeOffset? LastSuccessfulSyncUtc);
+    private sealed record SyncRecord(
+        Guid UserId,
+        long ServerCursor,
+        DateTimeOffset? LastSuccessfulSyncUtc,
+        Guid? ProfileId = null);
     private sealed record ProfileCache(DateTimeOffset CalculatedAtUtc, IReadOnlyList<LearningQuestionProfile> Questions);
 }

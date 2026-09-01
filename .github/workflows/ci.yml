@@ -177,10 +177,10 @@ jobs:
           mkdir -p artifacts/android
           apk_path="$(find src/GibddExamSimulator.Android/bin/Release/net10.0-android/android-arm64/publish -name '*-Signed.apk' -print -quit)"
           test -n "${apk_path}"
-          cp "${apk_path}" artifacts/android/GibddExamSimulator-2.0.3-android-DEV-SIGNED.apk
-          python tools/verify_android_apk.py artifacts/android/GibddExamSimulator-2.0.3-android-DEV-SIGNED.apk
-          "${ANDROID_HOME}/build-tools/36.0.0/apksigner" verify --verbose artifacts/android/GibddExamSimulator-2.0.3-android-DEV-SIGNED.apk
-          "${ANDROID_HOME}/build-tools/36.0.0/aapt2" dump badging artifacts/android/GibddExamSimulator-2.0.3-android-DEV-SIGNED.apk | grep "package: name='app.gibddexamsimulator.mobile'"
+          cp "${apk_path}" artifacts/android/GibddExamSimulator-2.0.4-android-DEV-SIGNED.apk
+          python tools/verify_android_apk.py artifacts/android/GibddExamSimulator-2.0.4-android-DEV-SIGNED.apk
+          "${ANDROID_HOME}/build-tools/36.0.0/apksigner" verify --verbose artifacts/android/GibddExamSimulator-2.0.4-android-DEV-SIGNED.apk
+          "${ANDROID_HOME}/build-tools/36.0.0/aapt2" dump badging artifacts/android/GibddExamSimulator-2.0.4-android-DEV-SIGNED.apk | grep "package: name='app.gibddexamsimulator.mobile'"
       - uses: actions/upload-artifact@v4
         with:
           name: android-arm64-dev-signed

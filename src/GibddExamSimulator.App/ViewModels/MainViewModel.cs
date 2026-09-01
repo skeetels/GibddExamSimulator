@@ -285,6 +285,8 @@ public sealed class MainViewModel : ObservableObject
                     _linkState = connection.LinkState;
                     _userId = _auth.UserId;
                     await _store.MergeUserScopeAsync(_deviceId, _userId);
+                    if (_linkState.ProfileId is Guid profileId)
+                        await _store.PrepareProfileSyncAsync(_userId, profileId);
                     HasLinkedPhone = _linkState.HasPeerDevice;
                     AccountCaption = HasLinkedPhone ? "Устройства связаны" : "Телефон не подключён";
                     CloudStatus = connection.IsOffline
@@ -927,15 +929,8 @@ public sealed class MainViewModel : ObservableObject
             return;
         }
         var passed = exams.Count(session => session.Outcome == StudyOutcome.Passed);
-        var errorTickets = exams
-            .SelectMany(session => session.Answers)
-            .Where(answer => answer.SelectedAnswer.HasValue && !answer.IsCorrect)
-            .GroupBy(answer => answer.TicketNumber)
-            .Select(group => new { Ticket = group.Key, Errors = group.Count() })
-            .OrderByDescending(item => item.Errors)
-            .ThenBy(item => item.Ticket)
-            .Take(3)
-            .Select(item => $"билет {item.Ticket} — {item.Errors}")
+        var errorTickets = ExamStatistics.GetProblemTickets(exams)
+            .Select(item => $"билет {item.TicketNumber} — {item.ErrorCount}")
             .ToArray();
         HomeStatistics =
             $"Экзаменов: {exams.Length} · сдано: {passed} · не сдано: {exams.Length - passed}" +
@@ -976,7 +971,7 @@ public sealed class MainViewModel : ObservableObject
 
     private async Task PollPairingAsync(CancellationToken cancellationToken)
     {
-        if (_activePairing is null || _deviceApi is null || _auth is null || _connection is null)
+        if (_activePairing is null || _deviceApi is null || _auth is null || _connection is null || _store is null)
             return;
         var pairing = _activePairing;
         try
@@ -1017,6 +1012,7 @@ public sealed class MainViewModel : ObservableObject
                             _linkState.LatestRevision,
                             status.LinkedDeviceName ?? "Телефон"),
                         cancellationToken);
+                    await _store.PrepareProfileSyncAsync(_userId, profileId, cancellationToken);
                     HasLinkedPhone = true;
                     AccountCaption = "Устройства связаны";
                     CloudStatus = "Синхронизировано";
@@ -1164,6 +1160,8 @@ public sealed class MainViewModel : ObservableObject
             _linkState = connection.LinkState;
             _userId = _auth.UserId;
             await _store.MergeUserScopeAsync(_deviceId, _userId);
+            if (_linkState.ProfileId is Guid profileId)
+                await _store.PrepareProfileSyncAsync(_userId, profileId);
             await ActivateUserAsync(_userId);
             AccountCaption = "Телефон не подключён";
             CloudStatus = "Нужна новая одноразовая привязка";

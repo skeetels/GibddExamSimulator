@@ -2,7 +2,7 @@
 #define AppDisplayName "АРМ кандидата в водители — неофициальный тренажёр"
 
 #ifndef AppVersion
-  #define AppVersion "2.0.3"
+  #define AppVersion "2.0.4"
 #endif
 
 #ifndef PublishDir

@@ -78,7 +78,8 @@ public sealed class DesktopStudyStore : ILocalStudyStore, ILegacyStudyMigration,
             CREATE TABLE IF NOT EXISTS study_sync_state (
                 user_id TEXT PRIMARY KEY,
                 server_cursor INTEGER NOT NULL DEFAULT 0,
-                last_successful_sync_utc TEXT NULL
+                last_successful_sync_utc TEXT NULL,
+                profile_id TEXT NULL
             );
 
             CREATE TABLE IF NOT EXISTS active_study_drafts (
@@ -109,6 +110,15 @@ public sealed class DesktopStudyStore : ILocalStudyStore, ILegacyStudyMigration,
             DROP TABLE IF EXISTS telegram_recipients;
             """;
         await command.ExecuteNonQueryAsync(cancellationToken);
+
+        var profileColumn = connection.CreateCommand();
+        profileColumn.CommandText = "SELECT COUNT(*) FROM pragma_table_info('study_sync_state') WHERE name='profile_id';";
+        if (Convert.ToInt32(await profileColumn.ExecuteScalarAsync(cancellationToken), CultureInfo.InvariantCulture) == 0)
+        {
+            var addProfileColumn = connection.CreateCommand();
+            addProfileColumn.CommandText = "ALTER TABLE study_sync_state ADD COLUMN profile_id TEXT NULL;";
+            await addProfileColumn.ExecuteNonQueryAsync(cancellationToken);
+        }
     }
 
     public async Task<Guid> GetOrCreateDeviceIdAsync(CancellationToken cancellationToken = default)
@@ -300,6 +310,33 @@ public sealed class DesktopStudyStore : ILocalStudyStore, ILegacyStudyMigration,
         command.Parameters.AddWithValue("$error", (error ?? string.Empty)[..Math.Min(error?.Length ?? 0, 500)]);
         command.Parameters.AddWithValue("$user", userId.ToString("D"));
         command.Parameters.AddWithValue("$session", sessionId.ToString("D"));
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task PrepareProfileSyncAsync(
+        Guid userId,
+        Guid profileId,
+        CancellationToken cancellationToken = default)
+    {
+        if (userId == Guid.Empty || profileId == Guid.Empty)
+            throw new ArgumentException("User and profile identifiers must not be empty.");
+
+        await using var connection = await OpenAsync(cancellationToken);
+        var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO study_sync_state(user_id, server_cursor, last_successful_sync_utc, profile_id)
+            VALUES ($user, 0, NULL, $profile)
+            ON CONFLICT(user_id) DO UPDATE SET
+                server_cursor=CASE
+                    WHEN study_sync_state.profile_id IS NULL OR study_sync_state.profile_id <> excluded.profile_id
+                    THEN 0 ELSE study_sync_state.server_cursor END,
+                last_successful_sync_utc=CASE
+                    WHEN study_sync_state.profile_id IS NULL OR study_sync_state.profile_id <> excluded.profile_id
+                    THEN NULL ELSE study_sync_state.last_successful_sync_utc END,
+                profile_id=excluded.profile_id;
+            """;
+        command.Parameters.AddWithValue("$user", userId.ToString("D"));
+        command.Parameters.AddWithValue("$profile", profileId.ToString("D"));
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 

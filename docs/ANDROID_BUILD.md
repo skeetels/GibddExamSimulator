@@ -1,6 +1,6 @@
-# Android APK 2.0.3
+# Android APK 2.0.4
 
-Приложение — настоящий .NET MAUI Android package `app.gibddexamsimulator.mobile`, versionName `2.0.3`, versionCode `203`, minSdk 26. Это не PWA wrapper. В APK находятся 800 вопросов AB и 548 JPEG; WebP и категории C/D запрещены.
+Приложение — настоящий .NET MAUI Android package `app.gibddexamsimulator.mobile`, versionName `2.0.4`, versionCode `204`, minSdk 26. Это не PWA wrapper. В APK находятся 800 вопросов AB и 548 JPEG; WebP и категории C/D запрещены.
 
 ## Camera onboarding
 
@@ -24,10 +24,10 @@ Release workflow не имеет dev-signed fallback. Он завершаетс�
 Проверки:
 
 ~~~powershell
-python .\tools\verify_android_apk.py .\GibddExamSimulator-2.0.3-android.apk
-apksigner verify --verbose --print-certs .\GibddExamSimulator-2.0.3-android.apk
-aapt2 dump badging .\GibddExamSimulator-2.0.3-android.apk
-adb install -r --no-incremental .\GibddExamSimulator-2.0.3-android.apk
+python .\tools\verify_android_apk.py .\GibddExamSimulator-2.0.4-android.apk
+apksigner verify --verbose --print-certs .\GibddExamSimulator-2.0.4-android.apk
+aapt2 dump badging .\GibddExamSimulator-2.0.4-android.apk
+adb install -r --no-incremental .\GibddExamSimulator-2.0.4-android.apk
 adb shell monkey -p app.gibddexamsimulator.mobile -c android.intent.category.LAUNCHER 1
 ~~~
 

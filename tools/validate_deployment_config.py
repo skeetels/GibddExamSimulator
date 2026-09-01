@@ -142,7 +142,7 @@ def check_health(config: dict[str, object]) -> None:
     url = str(config["syncApiBaseUrl"]).rstrip("/") + "/health"
     request = urllib.request.Request(
         url,
-        headers={"X-Environment-Id": str(config["environmentId"]), "User-Agent": "gibdd-release-validator/2.0.3"},
+        headers={"X-Environment-Id": str(config["environmentId"]), "User-Agent": "gibdd-release-validator/2.0.4"},
     )
     with urllib.request.urlopen(request, timeout=20) as response:
         payload = json.load(response)

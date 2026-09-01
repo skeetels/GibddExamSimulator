@@ -8,15 +8,15 @@ self-contained publish under artifacts/, then passes that folder to ISCC. The re
 setup executable is written to the workspace outputs/ directory by default.
 
 .EXAMPLE
-.\Build-Installer.ps1 -AppVersion 2.0.3
+.\Build-Installer.ps1 -AppVersion 2.0.4
 
 .EXAMPLE
-.\Build-Installer.ps1 -SkipPublish -PublishDirectory C:\staging\GibddExamSimulator -AppVersion 2.0.3
+.\Build-Installer.ps1 -SkipPublish -PublishDirectory C:\staging\GibddExamSimulator -AppVersion 2.0.4
 #>
 [CmdletBinding()]
 param(
     [ValidatePattern('^\d+\.\d+\.\d+(\.\d+)?$')]
-    [string] $AppVersion = '2.0.3',
+    [string] $AppVersion = '2.0.4',
 
     [ValidateSet('Release', 'Debug')]
     [string] $Configuration = 'Release',

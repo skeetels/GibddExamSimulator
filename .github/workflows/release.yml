@@ -1,8 +1,8 @@
-name: Release 2.0.3
+name: Release 2.0.4
 
 on:
   push:
-    tags: ['v2.0.3']
+    tags: ['v2.0.4']
 
 permissions:
   contents: write
@@ -27,7 +27,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "${GITHUB_REF_NAME}" = "v2.0.3"
+          test "${GITHUB_REF_NAME}" = "v2.0.4"
           repository_name="${GITHUB_REPOSITORY#*/}"
           python tools/configure_deployment.py \
             --environment-id "${DEPLOYMENT_ENVIRONMENT_ID}" \
@@ -103,14 +103,14 @@ jobs:
         shell: pwsh
         run: |
           ./installer/Prepare-InnoSetup.ps1
-          ./installer/Build-Installer.ps1 -AppVersion 2.0.3 -DotnetPath (Get-Command dotnet).Source -OutputDirectory "$PWD/outputs"
+          ./installer/Build-Installer.ps1 -AppVersion 2.0.4 -DotnetPath (Get-Command dotnet).Source -OutputDirectory "$PWD/outputs"
       - name: Build PWA and source archives
         shell: pwsh
         run: |
           dotnet publish src/GibddExamSimulator.Web/GibddExamSimulator.Web.csproj -c Release -o artifacts/publish/pwa
           Copy-Item artifacts/publish/pwa/wwwroot/index.html artifacts/publish/pwa/wwwroot/404.html
           New-Item -ItemType File artifacts/publish/pwa/wwwroot/.nojekyll -Force | Out-Null
-          ./tools/Package-Release.ps1 -Version 2.0.3 -PwaWwwRoot "$PWD/artifacts/publish/pwa/wwwroot" -OutputDirectory "$PWD/outputs" -DeploymentConfig "$PWD/build/generated/deployment-config.json"
+          ./tools/Package-Release.ps1 -Version 2.0.4 -PwaWwwRoot "$PWD/artifacts/publish/pwa/wwwroot" -OutputDirectory "$PWD/outputs" -DeploymentConfig "$PWD/build/generated/deployment-config.json"
           New-Item -ItemType Directory "$PWD/validation/windows/Configuration" -Force | Out-Null
           Copy-Item "$PWD/artifacts/publish/win-x64/Configuration/client-settings.json" "$PWD/validation/windows/Configuration/client-settings.json"
           Copy-Item "$PWD/artifacts/publish/win-x64/GibddExamSimulator.dll" "$PWD/validation/windows/GibddExamSimulator.dll"
@@ -118,11 +118,11 @@ jobs:
         with:
           name: windows-pwa-source-release
           path: |
-            outputs/GibddExamSimulator-Setup-2.0.3-win-x64.exe
-            outputs/GibddExamSimulator-PWA-2.0.3.zip
-            outputs/GibddExamSimulator-Source-2.0.3.zip
+            outputs/GibddExamSimulator-Setup-2.0.4-win-x64.exe
+            outputs/GibddExamSimulator-PWA-2.0.4.zip
+            outputs/GibddExamSimulator-Source-2.0.4.zip
             outputs/deployment-config.json
-            outputs/GibddExamSimulator-Logo-2.0.3.png
+            outputs/GibddExamSimulator-Logo-2.0.4.png
             validation/windows/Configuration/client-settings.json
             validation/windows/GibddExamSimulator.dll
 
@@ -180,7 +180,7 @@ jobs:
           dotnet restore src/GibddExamSimulator.Android/GibddExamSimulator.Android.csproj -r android-arm64
           dotnet publish src/GibddExamSimulator.Android/GibddExamSimulator.Android.csproj \
             -f net10.0-android -c Release -r android-arm64 --no-restore \
-            -p:AndroidPackageFormats=apk -p:ApplicationDisplayVersion=2.0.3 -p:ApplicationVersion=203 \
+            -p:AndroidPackageFormats=apk -p:ApplicationDisplayVersion=2.0.4 -p:ApplicationVersion=204 \
             -p:AndroidKeyStore=true "-p:AndroidSigningKeyStore=${keystore_path}" \
             "-p:AndroidSigningKeyAlias=${ANDROID_KEY_ALIAS}" \
             "-p:AndroidSigningKeyPass=${ANDROID_KEY_PASSWORD}" \
@@ -188,14 +188,14 @@ jobs:
           mkdir -p outputs
           apk_path="$(find src/GibddExamSimulator.Android/bin/Release/net10.0-android/android-arm64/publish -name '*-Signed.apk' -print -quit)"
           test -n "${apk_path}"
-          cp "${apk_path}" outputs/GibddExamSimulator-2.0.3-android.apk
-          python tools/verify_android_apk.py outputs/GibddExamSimulator-2.0.3-android.apk
-          "${ANDROID_HOME}/build-tools/36.0.0/apksigner" verify --verbose --print-certs outputs/GibddExamSimulator-2.0.3-android.apk
-          "${ANDROID_HOME}/build-tools/36.0.0/aapt2" dump badging outputs/GibddExamSimulator-2.0.3-android.apk | grep "package: name='app.gibddexamsimulator.mobile'.*versionCode='203'.*versionName='2.0.3'"
+          cp "${apk_path}" outputs/GibddExamSimulator-2.0.4-android.apk
+          python tools/verify_android_apk.py outputs/GibddExamSimulator-2.0.4-android.apk
+          "${ANDROID_HOME}/build-tools/36.0.0/apksigner" verify --verbose --print-certs outputs/GibddExamSimulator-2.0.4-android.apk
+          "${ANDROID_HOME}/build-tools/36.0.0/aapt2" dump badging outputs/GibddExamSimulator-2.0.4-android.apk | grep "package: name='app.gibddexamsimulator.mobile'.*versionCode='204'.*versionName='2.0.4'"
       - uses: actions/upload-artifact@v4
         with:
           name: signed-android-release
-          path: outputs/GibddExamSimulator-2.0.3-android.apk
+          path: outputs/GibddExamSimulator-2.0.4-android.apk
 
   publish-release:
     needs: [production-contract, windows-and-pwa, signed-android]
@@ -222,10 +222,10 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p outputs
-          cp windows/outputs/GibddExamSimulator-Setup-2.0.3-win-x64.exe outputs/
-          cp windows/outputs/GibddExamSimulator-PWA-2.0.3.zip outputs/
-          cp windows/outputs/GibddExamSimulator-Source-2.0.3.zip outputs/
-          cp android/GibddExamSimulator-2.0.3-android.apk outputs/
+          cp windows/outputs/GibddExamSimulator-Setup-2.0.4-win-x64.exe outputs/
+          cp windows/outputs/GibddExamSimulator-PWA-2.0.4.zip outputs/
+          cp windows/outputs/GibddExamSimulator-Source-2.0.4.zip outputs/
+          cp android/GibddExamSimulator-2.0.4-android.apk outputs/
           cp contract/deployment-config.json outputs/deployment-config.json
           for evidence in 01-windows-qr.png 02-android-camera.png 03-scan-success.png 04-devices-linked.png 05-cross-device-error.png 06-restart-without-qr.png; do
             test -s "docs/evidence/pairing-e2e/${evidence}"
@@ -238,22 +238,22 @@ jobs:
           python tools/validate_production_artifacts.py \
             --deployment-config outputs/deployment-config.json \
             --windows-publish windows/validation/windows \
-            --pwa-zip outputs/GibddExamSimulator-PWA-2.0.3.zip \
-            --apk outputs/GibddExamSimulator-2.0.3-android.apk \
+            --pwa-zip outputs/GibddExamSimulator-PWA-2.0.4.zip \
+            --apk outputs/GibddExamSimulator-2.0.4-android.apk \
             --inno-script installer/GibddExamSimulator.iss
       - name: Create updater manifest and SHA-256 ledger
         shell: pwsh
         run: |
-          $installer = Get-Item 'outputs/GibddExamSimulator-Setup-2.0.3-win-x64.exe'
-          $apk = Get-Item 'outputs/GibddExamSimulator-2.0.3-android.apk'
-          $assetBase = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/v2.0.3"
+          $installer = Get-Item 'outputs/GibddExamSimulator-Setup-2.0.4-win-x64.exe'
+          $apk = Get-Item 'outputs/GibddExamSimulator-2.0.4-android.apk'
+          $assetBase = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/v2.0.4"
           $manifest = [ordered]@{
-            version = '2.0.3'
+            version = '2.0.4'
             downloadUrl = "$assetBase/$($installer.Name)"
             sha256 = (Get-FileHash $installer.FullName -Algorithm SHA256).Hash
-            releaseNotes = 'Исправлена целостность банка вопросов в Windows-установщике; сохранены QR-привязка, синхронизация и Android APK.'
+            releaseNotes = 'Исправлена полная синхронизация истории после QR-привязки; проблемные билеты совпадают на ПК и телефоне; Telegram-отчёт содержит статистику по всем 40 билетам.'
             publishedAtUtc = [DateTimeOffset]::UtcNow.ToString('o')
-            releasePageUrl = "https://github.com/$env:GITHUB_REPOSITORY/releases/tag/v2.0.3"
+            releasePageUrl = "https://github.com/$env:GITHUB_REPOSITORY/releases/tag/v2.0.4"
             androidDownloadUrl = "$assetBase/$($apk.Name)"
             androidSha256 = (Get-FileHash $apk.FullName -Algorithm SHA256).Hash
             androidPackageId = 'app.gibddexamsimulator.mobile'
@@ -268,10 +268,10 @@ jobs:
         run: |
           set -euo pipefail
           for asset in \
-            GibddExamSimulator-Setup-2.0.3-win-x64.exe \
-            GibddExamSimulator-2.0.3-android.apk \
-            GibddExamSimulator-PWA-2.0.3.zip \
-            GibddExamSimulator-Source-2.0.3.zip \
+            GibddExamSimulator-Setup-2.0.4-win-x64.exe \
+            GibddExamSimulator-2.0.4-android.apk \
+            GibddExamSimulator-PWA-2.0.4.zip \
+            GibddExamSimulator-Source-2.0.4.zip \
             update-manifest.json deployment-config.json SHA256SUMS.txt pairing-e2e-evidence.zip; do
             test -s "outputs/${asset}"
           done
@@ -279,7 +279,7 @@ jobs:
           python tools/scan_release_assets.py outputs
       - uses: actions/upload-artifact@v4
         with:
-          name: complete-release-2.0.3
+          name: complete-release-2.0.4
           path: outputs/*
       - name: Create immutable GitHub Release
         shell: bash
@@ -287,12 +287,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh release create v2.0.3 outputs/* --verify-tag --generate-notes --title "GibddExamSimulator 2.0.3"
+          gh release create v2.0.4 outputs/* --verify-tag --generate-notes --title "GibddExamSimulator 2.0.4"
       - name: Verify public downloads and updater manifest
         shell: bash
         run: |
           set -euo pipefail
-          asset_base="https://github.com/${GITHUB_REPOSITORY}/releases/download/v2.0.3"
+          asset_base="https://github.com/${GITHUB_REPOSITORY}/releases/download/v2.0.4"
           for asset in $(find outputs -maxdepth 1 -type f -printf '%f\n'); do
             curl --fail --silent --show-error --location --retry 8 --retry-delay 5 "${asset_base}/${asset}" -o /dev/null
           done
