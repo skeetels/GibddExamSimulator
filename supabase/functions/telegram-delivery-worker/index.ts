@@ -181,7 +181,11 @@ export async function handleTelegramDeliveryWorker(
     .order("created_at", { ascending: true })
     .limit(20);
   if (queue.error) {
-    return Response.json({ error: "queue_read_failed" }, { status: 503 });
+    return Response.json({
+      error: "queue_read_failed",
+      databaseCode: queue.error.code ?? "unknown",
+      detail: queue.error.message.slice(0, 500),
+    }, { status: 503 });
   }
 
   let sent = 0;
