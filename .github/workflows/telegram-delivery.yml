@@ -2,7 +2,8 @@ name: Retry Telegram report queue
 
 on:
   schedule:
-    - cron: '*/5 * * * *'
+    # Offset from the start of the hour to reduce GitHub scheduler delays.
+    - cron: '2-57/5 * * * *'
   workflow_dispatch:
 
 permissions:
