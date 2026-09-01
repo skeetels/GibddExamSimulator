@@ -1,0 +1,31 @@
+{
+  "name": "Билеты ГИБДД AB — тренажёр",
+  "short_name": "Билеты ГИБДД",
+  "description": "Офлайн-тренажёр экзаменационных билетов категории AB с общей историей обучения.",
+  "id": "./",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f3f6f7",
+  "theme_color": "#0f3452",
+  "prefer_related_applications": false,
+  "icons": [
+    {
+      "src": "icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-maskable-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any"
+    }
+  ]
+}

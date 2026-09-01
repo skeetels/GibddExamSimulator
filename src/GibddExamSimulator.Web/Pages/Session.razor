@@ -1,0 +1,167 @@
+@page "/session"
+@implements IAsyncDisposable
+@inject MobileAppState State
+@inject NavigationManager Navigation
+
+<PageTitle>Сессия — Билеты ГИБДД</PageTitle>
+
+@if (State.ActiveSession is null)
+{
+    <section class="center-state">
+        <h1>Нет активной сессии</h1>
+        <button class="primary" @onclick="GoHome">На главную</button>
+    </section>
+}
+else if (State.ActiveSession.IsCompleted && State.LastCompletedSession is not null)
+{
+    var result = State.LastCompletedSession;
+    var passed = result.Mode != StudyMode.Exam || result.Outcome == StudyOutcome.Passed;
+    <section class="mobile-result @(passed ? "passed" : "failed")">
+        <span class="result-mark">@(passed ? "✓" : "×")</span>
+        <span class="eyebrow">@ModeCaption(result.Mode)</span>
+        <h1>@(result.Mode == StudyMode.Exam ? (passed ? "Экзамен сдан" : "Экзамен не сдан") : "Тренировка завершена")</h1>
+        <div class="result-metrics">
+            <div><strong>@result.Summary.CorrectCount</strong><span>правильно</span></div>
+            <div><strong>@result.Summary.ErrorCount</strong><span>ошибок</span></div>
+            <div><strong>@Duration(result.Summary.ElapsedMs)</strong><span>время</span></div>
+        </div>
+        @if (result.Mode == StudyMode.Exam)
+        {
+            <p class="telegram-note">Автоматический отчёт для @("@skeetels") получит метку «@State.DeviceCaption» после синхронизации.</p>
+        }
+        <button class="primary wide" @onclick="GoHome">Готово</button>
+        @if (result.Summary.ErrorCount > 0)
+        {
+            <details class="mistake-details">
+                <summary>Ошибки этой сессии</summary>
+                @foreach (var answer in result.Answers.Where(answer => !answer.IsCorrect))
+                {
+                    <p>Билет @answer.TicketNumber, вопрос @answer.QuestionNumber · @Duration(answer.ResponseTimeMs)</p>
+                }
+            </details>
+        }
+    </section>
+}
+else if (State.ActiveSession.NeedsSupplementary)
+{
+    <section class="supplementary-card">
+        <span class="eyebrow">ДОПОЛНИТЕЛЬНЫЕ ВОПРОСЫ</span>
+        <h1>@(State.ActiveSession.ExamErrorGroups.Count == 1 ? "5 вопросов · 5 минут" : "10 вопросов · 10 минут")</h1>
+        <p>Ошибки были в группах @string.Join(", ", State.ActiveSession.ExamErrorGroups). В дополнительном блоке ошибки не допускаются.</p>
+        <button class="primary wide" @onclick="State.StartSupplementaryAsync">Начать</button>
+    </section>
+}
+else if (Current is not null)
+{
+    <section class="session-screen">
+        <div class="session-head">
+            <div><span class="eyebrow">@State.ActiveSession.StageCaption</span><strong>@(State.ActiveSession.CurrentIndex + 1) / @State.ActiveSession.ActiveStates.Count</strong></div>
+            @if (State.ActiveSession.IsExam)
+            {
+                <time>@Duration((long)State.ActiveSession.Remaining.TotalMilliseconds)</time>
+            }
+        </div>
+
+        <div class="question-strip" aria-label="Номера вопросов">
+            @for (var index = 0; index < State.ActiveSession.ActiveStates.Count; index++)
+            {
+                var captured = index;
+                var item = State.ActiveSession.ActiveStates[index];
+                <button class="@(NavClass(index, item))" @onclick="() => State.NavigateQuestion(captured)">@(index + 1)</button>
+            }
+        </div>
+
+        <article class="question-card">
+            <span class="question-meta">Билет @Current.Question.TicketNumber · вопрос @Current.Question.QuestionNumber · блок @Current.Question.ThematicBlockId</span>
+            <h1>@Current.Question.QuestionText</h1>
+            @if (!string.IsNullOrWhiteSpace(Current.Question.ImagePath))
+            {
+                <img class="question-image" src="@($"question-bank/ab/{Current.Question.ImagePath}")" alt="Иллюстрация к вопросу" />
+            }
+        </article>
+
+        <div class="answer-list">
+            @for (var index = 0; index < Current.Question.Answers.Count; index++)
+            {
+                var number = index + 1;
+                <button disabled="@Current.ConfirmedAnswer.HasValue" class="@(AnswerClass(number))" @onclick="() => State.SelectAnswer(number)">
+                    <span>@number</span><strong>@Current.Question.Answers[index]</strong>
+                </button>
+            }
+        </div>
+
+        <button class="primary wide confirm" disabled="@(!Current.PendingAnswer.HasValue || Current.ConfirmedAnswer.HasValue)" @onclick="State.ConfirmAnswerAsync">
+            Подтвердить ответ
+        </button>
+    </section>
+}
+
+@code {
+    private readonly CancellationTokenSource timerCancellation = new();
+    private PeriodicTimer? timer;
+    private ExamQuestionState? Current => State.ActiveSession?.CurrentState;
+
+    protected override void OnInitialized()
+    {
+        State.Changed += OnStateChanged;
+        timer = new PeriodicTimer(TimeSpan.FromMilliseconds(500));
+        _ = RunTimerAsync();
+    }
+
+    private async Task RunTimerAsync()
+    {
+        try
+        {
+            while (timer is not null && await timer.WaitForNextTickAsync(timerCancellation.Token))
+            {
+                if (State.ActiveSession?.IsExam == true && State.ActiveSession.IsCompleted == false)
+                    await InvokeAsync(State.TickAsync);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Component disposal ends the timer.
+        }
+    }
+
+    private void OnStateChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private string NavClass(int index, ExamQuestionState state)
+    {
+        if (index == State.ActiveSession?.CurrentIndex) return "current";
+        if (state.ConfirmedAnswer.HasValue) return "answered";
+        if (state.PendingAnswer.HasValue) return "pending";
+        return string.Empty;
+    }
+
+    private string AnswerClass(int answer) => Current?.PendingAnswer == answer ? "selected" : string.Empty;
+
+    private void GoHome() => Navigation.NavigateTo("/");
+
+    private static string Duration(long milliseconds)
+    {
+        var seconds = Math.Max(0, (long)Math.Ceiling(milliseconds / 1000d));
+        return $"{seconds / 60:00}:{seconds % 60:00}";
+    }
+
+    private static string ModeCaption(StudyMode mode) => mode switch
+    {
+        StudyMode.Exam => "ЭКЗАМЕН",
+        StudyMode.SmartTen => "УМНЫЕ 10",
+        StudyMode.MistakeReview => "РАБОТА НАД ОШИБКАМИ",
+        StudyMode.WeakTopics => "СЛАБЫЕ ТЕМЫ",
+        StudyMode.Ticket => "БИЛЕТ",
+        StudyMode.Marathon => "МАРАФОН",
+        StudyMode.NoMistakeChallenge => "БЕЗ ОШИБОК",
+        _ => "ТРЕНИРОВКА"
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        State.Changed -= OnStateChanged;
+        timerCancellation.Cancel();
+        timer?.Dispose();
+        timerCancellation.Dispose();
+        await Task.CompletedTask;
+    }
+}

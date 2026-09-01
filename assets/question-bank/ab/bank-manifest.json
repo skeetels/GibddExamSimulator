@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "bankVersion": "v2026.Q2.0-ab",
+  "bankSha256": "7EB7F07ADD0B589B9877508F6D8F7A91D46FA305F835C7008EDBB9C225B02186",
+  "questionCount": 800,
+  "ticketCount": 40,
+  "blockCount": 160,
+  "imageCount": 548,
+  "imageBytes": 32237906,
+  "generatedAtUtc": "2026-08-31T14:46:53.701134Z",
+  "sourceGeneratedAtUtc": "2026-08-28T02:01:47.763735+00:00",
+  "sources": [
+    "https://xn--90adear.xn--p1ai/mens/avtovladeltsam/abm"
+  ],
+  "transportSnapshot": {
+    "url": "https://github.com/etspring/pdd_russia",
+    "commit": "5cf625ee7e494a17c143527862b45d8020871882",
+    "commitDate": "2026-06-17T14:27:16+03:00",
+    "description": "v2026.Q2.0"
+  }
+}

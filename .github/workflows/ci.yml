@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: '**/*.csproj'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Validate AB bank and scan source
+        run: |
+          python tools/build_ab_question_bank.py --validate-only
+          python tools/scan_for_secrets.py
+      - name: Restore cross-platform projects
+        run: |
+          dotnet restore src/GibddExamSimulator.Web/GibddExamSimulator.Web.csproj
+          dotnet restore tests/GibddExamSimulator.Tests/GibddExamSimulator.Tests.csproj
+          dotnet restore tests/GibddExamSimulator.Sync.Tests/GibddExamSimulator.Sync.Tests.csproj
+          dotnet restore tests/GibddExamSimulator.Web.Tests/GibddExamSimulator.Web.Tests.csproj
+      - name: Build cross-platform projects
+        run: dotnet build src/GibddExamSimulator.Web/GibddExamSimulator.Web.csproj -c Release --no-restore -warnaserror
+      - name: Test
+        run: |
+          dotnet test tests/GibddExamSimulator.Tests/GibddExamSimulator.Tests.csproj -c Release --no-restore --logger "trx;LogFileName=core.trx"
+          dotnet test tests/GibddExamSimulator.Sync.Tests/GibddExamSimulator.Sync.Tests.csproj -c Release --no-restore --logger "trx;LogFileName=sync.trx"
+          dotnet test tests/GibddExamSimulator.Web.Tests/GibddExamSimulator.Web.Tests.csproj -c Release --no-restore --logger "trx;LogFileName=web.trx"
+      - name: Upload failed test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failed-test-results-linux
+          path: '**/TestResults/*.trx'
+
+  edge-function:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.9.6
+      - working-directory: supabase/functions/telegram-report
+        run: |
+          deno fmt --check
+          deno lint
+          deno check index.ts index.test.ts
+          deno test
+
+  rls:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Start disposable Supabase and run database tests
+        run: |
+          supabase start
+          supabase test db
+      - name: Stop disposable Supabase
+        if: always()
+        run: supabase stop --no-backup
+
+  windows-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: '**/*.csproj'
+      - run: dotnet restore GibddExamSimulator.sln
+      - run: dotnet build GibddExamSimulator.sln -c Release --no-restore -warnaserror

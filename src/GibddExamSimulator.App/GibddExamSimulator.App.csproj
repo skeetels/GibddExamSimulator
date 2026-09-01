@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>GibddExamSimulator</RootNamespace>
+    <AssemblyName>GibddExamSimulator</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>..\..\assets\branding\windows-app.ico</ApplicationIcon>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <PublishSingleFile>false</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <Version>2.0.0</Version>
+    <Product>Тренажёр АРМ кандидата в водители</Product>
+    <Company>Неофициальный учебный проект</Company>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\GibddExamSimulator.Core\GibddExamSimulator.Core.csproj" />
+    <ProjectReference Include="..\GibddExamSimulator.Application\GibddExamSimulator.Application.csproj" />
+    <ProjectReference Include="..\GibddExamSimulator.Infrastructure\GibddExamSimulator.Infrastructure.csproj" />
+    <ProjectReference Include="..\GibddExamSimulator.Sync\GibddExamSimulator.Sync.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="Configuration\client-settings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\..\assets\branding\logo-master.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>Branding\logo.png</TargetPath>
+    </Content>
+    <Content Include="..\..\assets\question-bank\ab\*.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>QuestionBank\%(Filename)%(Extension)</TargetPath>
+    </Content>
+    <Content Include="..\..\assets\question-bank\ab\images\*.jpg">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>QuestionBank\images\%(Filename)%(Extension)</TargetPath>
+    </Content>
+  </ItemGroup>
+</Project>

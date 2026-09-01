@@ -1,0 +1,68 @@
+name: Windows release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Validate version and generate public client configuration
+        shell: pwsh
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          if ($version -notmatch '^\d+\.\d+\.\d+(\.\d+)?$') { throw "Invalid release version: $version" }
+          python tools/configure_deployment.py --supabase-url $env:SUPABASE_URL --supabase-publishable-key $env:SUPABASE_PUBLISHABLE_KEY --github-repository $env:GITHUB_REPOSITORY --pages-base '/'
+          "APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - run: python tools/build_ab_question_bank.py --validate-only
+      - run: python tools/scan_for_secrets.py
+      - run: dotnet restore GibddExamSimulator.sln
+      - run: dotnet test GibddExamSimulator.sln -c Release --no-restore
+      - name: Prepare verified Inno Setup
+        shell: pwsh
+        run: ./installer/Prepare-InnoSetup.ps1
+      - name: Build Windows installer
+        shell: pwsh
+        run: ./installer/Build-Installer.ps1 -AppVersion $env:APP_VERSION -DotnetPath (Get-Command dotnet).Source -OutputDirectory "$PWD/outputs"
+      - name: Publish PWA archive
+        shell: pwsh
+        run: |
+          dotnet publish src/GibddExamSimulator.Web/GibddExamSimulator.Web.csproj -c Release --no-restore -o outputs/pwa
+          Copy-Item outputs/pwa/wwwroot/index.html outputs/pwa/wwwroot/404.html
+          Compress-Archive -Path outputs/pwa/wwwroot/* -DestinationPath "outputs/GibddExamSimulator-PWA-$env:APP_VERSION.zip"
+      - name: Generate update manifest and checksum
+        shell: pwsh
+        run: |
+          $installerName = "GibddExamSimulator-Setup-$env:APP_VERSION-win-x64.exe"
+          $installerPath = Join-Path "$PWD/outputs" $installerName
+          $hash = (Get-FileHash -LiteralPath $installerPath -Algorithm SHA256).Hash
+          $releaseUrl = "https://github.com/$env:GITHUB_REPOSITORY/releases/tag/$env:GITHUB_REF_NAME"
+          $downloadUrl = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:GITHUB_REF_NAME/$installerName"
+          [ordered]@{
+            version = $env:APP_VERSION
+            downloadUrl = $downloadUrl
+            sha256 = $hash
+            releaseNotes = "Версия $env:APP_VERSION"
+            publishedAtUtc = [DateTimeOffset]::UtcNow.ToString('o')
+            releasePageUrl = $releaseUrl
+          } | ConvertTo-Json | Set-Content -LiteralPath outputs/update-manifest.json -Encoding utf8
+          "$hash  $installerName" | Set-Content -LiteralPath outputs/SHA256SUMS.txt -Encoding ascii
+      - name: Create GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create $env:GITHUB_REF_NAME outputs/*.exe outputs/*.json outputs/*.txt outputs/*.zip --verify-tag --generate-notes --title "GibddExamSimulator $env:APP_VERSION"

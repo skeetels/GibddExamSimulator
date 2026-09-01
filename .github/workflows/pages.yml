@@ -1,0 +1,63 @@
+name: Deploy PWA to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - uses: actions/configure-pages@v5
+      - name: Generate public configuration
+        shell: bash
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
+          CUSTOM_DOMAIN: ${{ vars.PAGES_CUSTOM_DOMAIN }}
+        run: |
+          repository_name="${GITHUB_REPOSITORY#*/}"
+          pages_base="/${repository_name}/"
+          if [[ -n "${CUSTOM_DOMAIN}" ]]; then pages_base="/"; fi
+          python tools/configure_deployment.py \
+            --supabase-url "${SUPABASE_URL}" \
+            --supabase-publishable-key "${SUPABASE_PUBLISHABLE_KEY}" \
+            --github-repository "${GITHUB_REPOSITORY}" \
+            --pages-base "${pages_base}"
+      - run: dotnet publish src/GibddExamSimulator.Web/GibddExamSimulator.Web.csproj -c Release -o publish/pwa
+      - name: Add SPA fallback and optional custom domain
+        shell: bash
+        env:
+          CUSTOM_DOMAIN: ${{ vars.PAGES_CUSTOM_DOMAIN }}
+        run: |
+          cp publish/pwa/wwwroot/index.html publish/pwa/wwwroot/404.html
+          touch publish/pwa/wwwroot/.nojekyll
+          if [[ -n "${CUSTOM_DOMAIN}" ]]; then printf '%s\n' "${CUSTOM_DOMAIN}" > publish/pwa/wwwroot/CNAME; fi
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: publish/pwa/wwwroot
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

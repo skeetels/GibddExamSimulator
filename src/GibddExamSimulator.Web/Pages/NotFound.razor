@@ -1,0 +1,12 @@
+@page "/404"
+@inject NavigationManager Navigation
+
+<PageTitle>Страница не найдена</PageTitle>
+<section class="center-state">
+    <h1>Страница не найдена</h1>
+    <button class="primary" @onclick="GoHome">На главную</button>
+</section>
+
+@code {
+    private void GoHome() => Navigation.NavigateTo("/");
+}

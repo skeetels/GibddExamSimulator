@@ -1,0 +1,43 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject MobileAppState State
+
+<div class="app-shell">
+    <header class="topbar">
+        <img src="logo.png" alt="Логотип" />
+        <div>
+            <strong>Билеты ГИБДД AB</strong>
+            <span>@State.DeviceCaption</span>
+        </div>
+    </header>
+
+    <main class="page-content">
+        @Body
+    </main>
+
+    <nav class="bottom-nav" aria-label="Основная навигация">
+        <NavLink href="/" Match="NavLinkMatch.All">
+            <span class="nav-icon">⌂</span><span>Главная</span>
+        </NavLink>
+        <NavLink href="/train">
+            <span class="nav-icon">✓</span><span>Учиться</span>
+        </NavLink>
+        <NavLink href="/progress">
+            <span class="nav-icon">▥</span><span>Прогресс</span>
+        </NavLink>
+    </nav>
+</div>
+
+@code {
+    protected override void OnInitialized()
+    {
+        State.Changed += OnStateChanged;
+        _ = InitializeStateAsync();
+    }
+
+    private async Task InitializeStateAsync() => await State.InitializeAsync();
+
+    private void OnStateChanged() => _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose() => State.Changed -= OnStateChanged;
+}

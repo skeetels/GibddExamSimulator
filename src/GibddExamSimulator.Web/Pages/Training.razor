@@ -1,0 +1,59 @@
+@page "/train"
+@inject MobileAppState State
+@inject NavigationManager Navigation
+
+<PageTitle>Учиться — Билеты ГИБДД</PageTitle>
+
+<section class="page-title"><span class="eyebrow">ТРЕНИРОВКИ</span><h1>Как будем учиться?</h1><p>История общая с компьютером и учитывается при следующем экзамене.</p></section>
+
+@if (!State.CanStudy)
+{
+    <section class="notice"><p>Сначала войдите в аккаунт.</p><button class="primary" @onclick="GoToLogin">Войти</button></section>
+}
+else
+{
+    <section class="mode-list">
+        <button @onclick="() => StartAsync(StudyMode.SmartTen)"><strong>Умные 10</strong><span>Ошибки, просроченные и сложные вопросы + немного новых</span></button>
+        <button @onclick="() => StartAsync(StudyMode.MistakeReview)"><strong>Работа над ошибками</strong><span>Вопросы, где были неверные ответы</span></button>
+        <button @onclick="() => StartAsync(StudyMode.WeakTopics)"><strong>Слабые темы</strong><span>Блоки с самым высоким риском ошибки</span></button>
+        <button @onclick="() => StartAsync(StudyMode.NoMistakeChallenge)"><strong>Без ошибок</strong><span>Серия заканчивается после первой ошибки</span></button>
+        <button @onclick="() => StartAsync(StudyMode.Marathon)"><strong>Марафон</strong><span>100 разных вопросов</span></button>
+    </section>
+
+    <section class="section-card ticket-card">
+        <div><span class="eyebrow">ПО БИЛЕТУ</span><h2>Выберите билет</h2></div>
+        <select @bind="ticketNumber">
+            @for (var ticket = 1; ticket <= 40; ticket++)
+            {
+                <option value="@ticket">Билет @ticket</option>
+            }
+        </select>
+        <button class="secondary" @onclick="() => StartAsync(StudyMode.Ticket, ticketNumber)">Решать 20 вопросов</button>
+    </section>
+
+    @if (!string.IsNullOrWhiteSpace(error))
+    {
+        <p class="inline-error">@error</p>
+    }
+}
+
+@code {
+    private int ticketNumber = 1;
+    private string error = string.Empty;
+
+    private async Task StartAsync(StudyMode mode, int? ticket = null)
+    {
+        error = string.Empty;
+        try
+        {
+            await State.StartTrainingAsync(mode, ticket);
+            Navigation.NavigateTo("/session");
+        }
+        catch (Exception exception)
+        {
+            error = exception.Message;
+        }
+    }
+
+    private void GoToLogin() => Navigation.NavigateTo("/login");
+}

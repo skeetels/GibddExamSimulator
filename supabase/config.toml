@@ -1,0 +1,26 @@
+project_id = "gibdd-exam-simulator"
+
+[api]
+enabled = true
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 500
+
+[db]
+major_version = 17
+
+[auth]
+enabled = true
+enable_signup = false
+site_url = "http://localhost:5000"
+additional_redirect_urls = []
+jwt_expiry = 3600
+enable_refresh_token_rotation = true
+
+[auth.email]
+enable_signup = false
+enable_confirmations = true
+double_confirm_changes = true
+
+[functions.telegram-report]
+verify_jwt = true

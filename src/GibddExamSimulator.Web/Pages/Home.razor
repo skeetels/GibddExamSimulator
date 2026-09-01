@@ -1,0 +1,120 @@
+@page "/"
+@implements IDisposable
+@inject MobileAppState State
+@inject NavigationManager Navigation
+
+<PageTitle>Билеты ГИБДД AB</PageTitle>
+
+@if (!State.IsInitialized)
+{
+    <section class="center-state"><div class="spinner"></div><p>@State.InitializationStatus</p></section>
+}
+else if (!string.IsNullOrWhiteSpace(State.InitializationError))
+{
+    <section class="notice error"><h1>Не удалось запустить приложение</h1><p>@State.InitializationError</p></section>
+}
+else if (State.IsCloudConfigured && !State.IsAuthenticated)
+{
+    <section class="hero-card">
+        <span class="eyebrow">ЕДИНАЯ ИСТОРИЯ</span>
+        <h1>Войдите в аккаунт</h1>
+        <p>Экзамены с телефона и компьютера объединяются, а результат автоматически уходит в Telegram владельцу.</p>
+        <button class="primary wide" @onclick="GoToLogin">Войти</button>
+    </section>
+}
+else
+{
+    <section class="hero-card compact">
+        <span class="eyebrow">ЭКЗАМЕН</span>
+        <h1>20 вопросов · 20 минут</h1>
+        <p>Четыре тематических блока. Сложные вопросы подбираются с учётом прошлых ошибок.</p>
+        <label class="field-label" for="candidate">Имя кандидата на этом устройстве</label>
+        <input id="candidate" maxlength="100" @bind="candidateName" />
+        <button class="primary wide" disabled="@busy" @onclick="StartExamAsync">Начать экзамен</button>
+    </section>
+
+    @if (State.SavedDraft is not null)
+    {
+        <section class="resume-card">
+            <div><strong>Незавершённая сессия</strong><span>@DraftCaption(State.SavedDraft)</span></div>
+            <div class="button-row">
+                <button class="secondary" @onclick="ResumeAsync">Продолжить</button>
+                <button class="text-button danger" @onclick="State.DiscardDraftAsync">Удалить</button>
+            </div>
+        </section>
+    }
+
+    <section class="metric-grid">
+        <article><span>Сессии</span><strong>@State.SessionCount</strong></article>
+        <article><span>Точность</span><strong>@State.AccuracyPercent.ToString("0")%</strong></article>
+        <article><span>Сдано</span><strong>@State.PassedExamCount</strong></article>
+    </section>
+
+    <section class="section-card">
+        <div class="section-heading"><div><span class="eyebrow">ОФЛАЙН</span><h2>Вопросы без сети</h2></div><span class="pill">@State.OfflineImageCount / 548 фото</span></div>
+        <p>Тексты и оболочка доступны офлайн всегда. Фотографии подгружаются по мере использования или одним пакетом @State.OfflinePackageSizeCaption.</p>
+        @if (State.IsOfflineDownloadRunning)
+        {
+            <progress value="@State.OfflineCompleted" max="@Math.Max(1, State.OfflineTotal)"></progress>
+            <small>@State.OfflineCompleted из @State.OfflineTotal</small>
+            <button class="text-button danger wide" @onclick="State.CancelOfflinePackageDownloadAsync">Отменить загрузку</button>
+        }
+        else
+        {
+            <button class="secondary wide" @onclick="State.DownloadOfflinePackageAsync">Скачать все изображения</button>
+        }
+    </section>
+
+    @if (!string.IsNullOrWhiteSpace(localError))
+    {
+        <p class="inline-error">@localError</p>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(State.Status))
+    {
+        <p class="status-note">@State.Status</p>
+    }
+}
+
+@code {
+    private string candidateName = "Кандидат";
+    private string localError = string.Empty;
+    private bool busy;
+
+    protected override void OnInitialized() => State.Changed += OnStateChanged;
+
+    private void OnStateChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private async Task StartExamAsync()
+    {
+        busy = true;
+        localError = string.Empty;
+        try
+        {
+            await State.StartExamAsync(string.IsNullOrWhiteSpace(candidateName) ? "Кандидат" : candidateName.Trim());
+            Navigation.NavigateTo("/session");
+        }
+        catch (Exception exception)
+        {
+            localError = exception.Message;
+        }
+        finally
+        {
+            busy = false;
+        }
+    }
+
+    private async Task ResumeAsync()
+    {
+        if (await State.ResumeDraftAsync())
+            Navigation.NavigateTo("/session");
+    }
+
+    private void GoToLogin() => Navigation.NavigateTo("/login");
+
+    private static string DraftCaption(ActiveSessionDraft draft) => draft.Mode == StudyMode.Exam
+        ? $"Экзамен · вопрос {draft.CurrentQuestionIndex + 1}"
+        : $"{draft.Mode} · вопрос {draft.CurrentQuestionIndex + 1}";
+
+    public void Dispose() => State.Changed -= OnStateChanged;
+}

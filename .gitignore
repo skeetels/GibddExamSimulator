@@ -1,0 +1,11 @@
+bin/
+obj/
+.vs/
+artifacts/
+publish/
+*.user
+*.suo
+.env
+.env.*
+!.env.example
+supabase/functions/.env

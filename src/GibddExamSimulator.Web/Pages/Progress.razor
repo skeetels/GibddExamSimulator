@@ -1,0 +1,58 @@
+@page "/progress"
+@inject MobileAppState State
+@inject NavigationManager Navigation
+
+<PageTitle>Прогресс — Билеты ГИБДД</PageTitle>
+
+<section class="page-title"><span class="eyebrow">СТАТИСТИКА</span><h1>Прогресс</h1><p>@State.AccountCaption</p></section>
+
+@if (!State.CanStudy)
+{
+    <section class="notice"><p>Войдите, чтобы увидеть общую историю.</p><button class="primary" @onclick="GoToLogin">Войти</button></section>
+}
+else
+{
+    <section class="metric-grid large">
+        <article><span>Все сессии</span><strong>@State.SessionCount</strong></article>
+        <article><span>Точность</span><strong>@State.AccuracyPercent.ToString("0.0")%</strong></article>
+        <article><span>Экзаменов сдано</span><strong>@State.PassedExamCount</strong></article>
+    </section>
+
+    <section class="section-card">
+        <span class="eyebrow">ПРОБЛЕМНЫЕ БИЛЕТЫ</span>
+        <h2>@State.WeakTickets</h2>
+        <p>Рейтинг пересчитывается из неизменяемых ответов со всех синхронизированных устройств.</p>
+    </section>
+
+    <section class="section-card">
+        <span class="eyebrow">СИНХРОНИЗАЦИЯ</span>
+        <h2>@State.DeviceCaption</h2>
+        <p>@(string.IsNullOrWhiteSpace(State.SyncStatus) ? State.Status : State.SyncStatus)</p>
+        <button class="secondary wide" @onclick="SyncAsync">Синхронизировать</button>
+    </section>
+
+    <section class="section-card">
+        <div class="section-heading"><div><span class="eyebrow">ОФЛАЙН-ПАКЕТ</span><h2>@State.OfflineImageCount из 548 фото</h2></div></div>
+        <div class="button-row">
+            <button class="secondary" @onclick="State.DownloadOfflinePackageAsync">Скачать</button>
+            <button class="text-button danger" @onclick="State.ClearOfflinePackageAsync">Очистить</button>
+        </div>
+    </section>
+
+    @if (State.IsAuthenticated)
+    {
+        <button class="text-button danger wide signout" @onclick="SignOutAsync">Выйти из аккаунта</button>
+    }
+}
+
+@code {
+    private async Task SyncAsync() => await State.SyncAsync();
+
+    private async Task SignOutAsync()
+    {
+        await State.SignOutAsync();
+        Navigation.NavigateTo("/login");
+    }
+
+    private void GoToLogin() => Navigation.NavigateTo("/login");
+}
