@@ -104,7 +104,9 @@ jobs:
       - name: Start disposable Supabase and run RLS/pairing tests
         run: |
           supabase start
-          supabase test db
+          supabase test db \
+            supabase/tests/pairing_flow.test.sql \
+            supabase/tests/study_sessions_rls.test.sql
       - name: Stop disposable Supabase
         if: always()
         run: supabase stop --no-backup
@@ -158,7 +160,11 @@ jobs:
       - name: Install Android build dependencies
         shell: bash
         run: |
+          set +o pipefail
           yes | sdkmanager "platforms;android-36" "build-tools;36.0.0" >/dev/null
+          sdkmanager_status="${PIPESTATUS[1]}"
+          set -o pipefail
+          test "${sdkmanager_status}" -eq 0
           dotnet workload install maui-android
       - name: Publish installable ARM64 APK
         shell: bash

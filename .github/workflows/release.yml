@@ -169,7 +169,11 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
           set -euo pipefail
+          set +o pipefail
           yes | sdkmanager "platforms;android-36" "build-tools;36.0.0" >/dev/null
+          sdkmanager_status="${PIPESTATUS[1]}"
+          set -o pipefail
+          test "${sdkmanager_status}" -eq 0
           dotnet workload install maui-android
           keystore_path="${RUNNER_TEMP}/gibdd-release.keystore"
           printf '%s' "${ANDROID_KEYSTORE_BASE64}" | base64 --decode > "${keystore_path}"

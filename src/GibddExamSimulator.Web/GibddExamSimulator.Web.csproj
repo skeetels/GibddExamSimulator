@@ -73,7 +73,7 @@
   <Target Name="ValidateProductionDeploymentConfig"
           BeforeTargets="PrepareForBuild"
           Condition="'$(Configuration)' == 'Release' and '$(SkipDeploymentConfigValidation)' != 'true'">
-    <Exec Command="&quot;$(DeploymentPython)&quot; &quot;$(MSBuildProjectDirectory)\..\..\tools\validate_deployment_config.py&quot; --config &quot;$(MSBuildProjectDirectory)\wwwroot\client-settings.json&quot;" />
+    <Exec Command="&quot;$(DeploymentPython)&quot; &quot;$(MSBuildProjectDirectory)/../../tools/validate_deployment_config.py&quot; --config &quot;$(MSBuildProjectDirectory)/wwwroot/client-settings.json&quot;" />
   </Target>
 
 </Project>
