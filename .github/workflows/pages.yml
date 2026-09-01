@@ -86,7 +86,7 @@ jobs:
     steps:
       - name: Deploy
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
       - name: Smoke-test published camera onboarding
         shell: bash
         env:
