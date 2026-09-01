@@ -3,6 +3,11 @@ import { buildReport, type StudySessionRow } from "../telegram-report/index.ts";
 
 const FIXED_RECIPIENT_KEY = "skeetels";
 const FIXED_RECIPIENT_USERNAME = "skeetels";
+export const DELIVERY_RETRY_STATUSES = [
+  "pending",
+  "failed",
+  "sending",
+] as const;
 
 function requiredEnvironmentValue(name: string): string {
   const value = Deno.env.get(name)?.trim();
@@ -177,7 +182,9 @@ export async function handleTelegramDeliveryWorker(
   });
   const queue = await admin.from("telegram_report_deliveries")
     .select("session_id,user_id")
-    .in("status", ["pending", "failed"])
+    // A crashed or previously under-privileged worker can leave an expired
+    // claim in `sending`; claim_telegram_report safely reclaims it after TTL.
+    .in("status", [...DELIVERY_RETRY_STATUSES])
     .order("created_at", { ascending: true })
     .limit(20);
   if (queue.error) {

@@ -1,4 +1,8 @@
-import { constantTimeEqual, handleTelegramDeliveryWorker } from "./index.ts";
+import {
+  constantTimeEqual,
+  DELIVERY_RETRY_STATUSES,
+  handleTelegramDeliveryWorker,
+} from "./index.ts";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -24,4 +28,11 @@ Deno.test("worker rejects non-POST without reading secrets", async () => {
     new Request("https://local", { method: "GET" }),
   );
   assert(response.status === 405, "unexpected method status");
+});
+
+Deno.test("worker retries abandoned sending claims", () => {
+  assert(
+    DELIVERY_RETRY_STATUSES.includes("sending"),
+    "expired sending claims would remain stuck forever",
+  );
 });
