@@ -22,6 +22,9 @@ if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
 }
 $OutputDirectory = [IO.Path]::GetFullPath($OutputDirectory)
 $PwaWwwRoot = [IO.Path]::GetFullPath($PwaWwwRoot)
+$outputDirectoryPrefix = $OutputDirectory.TrimEnd(
+    [IO.Path]::DirectorySeparatorChar,
+    [IO.Path]::AltDirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
 
 foreach ($optionalInput in @($AndroidApk, $UpdateManifest, $VisualComparison, $DeploymentConfig, $PairingEvidence)) {
     if (-not [string]::IsNullOrWhiteSpace($optionalInput) -and
@@ -60,6 +63,7 @@ try {
         $files = Get-ChildItem -LiteralPath $projectRoot -Recurse -File -Force | Where-Object {
             $relative = [IO.Path]::GetRelativePath($projectRoot, $_.FullName).Replace('\', '/')
             $segments = $relative.Split('/')
+            -not $_.FullName.StartsWith($outputDirectoryPrefix, [StringComparison]::OrdinalIgnoreCase) -and
             -not ($segments | Where-Object { $_ -in @('.git', '.vs', 'bin', 'obj', 'artifacts', 'publish', '__pycache__') }) -and
             -not $relative.EndsWith('.user', [StringComparison]::OrdinalIgnoreCase) -and
             -not $relative.EndsWith('.suo', [StringComparison]::OrdinalIgnoreCase) -and
