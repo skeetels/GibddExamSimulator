@@ -66,7 +66,7 @@ jobs:
             if [[ "${attempt}" == 60 ]]; then exit 1; fi
             sleep 10
           done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: final-production-contract
           path: build/generated/deployment-config.json
@@ -114,7 +114,7 @@ jobs:
           New-Item -ItemType Directory "$PWD/validation/windows/Configuration" -Force | Out-Null
           Copy-Item "$PWD/artifacts/publish/win-x64/Configuration/client-settings.json" "$PWD/validation/windows/Configuration/client-settings.json"
           Copy-Item "$PWD/artifacts/publish/win-x64/GibddExamSimulator.dll" "$PWD/validation/windows/GibddExamSimulator.dll"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows-pwa-source-release
           path: |
@@ -192,7 +192,7 @@ jobs:
           python tools/verify_android_apk.py outputs/GibddExamSimulator-2.0.4-android.apk
           "${ANDROID_HOME}/build-tools/36.0.0/apksigner" verify --verbose --print-certs outputs/GibddExamSimulator-2.0.4-android.apk
           "${ANDROID_HOME}/build-tools/36.0.0/aapt2" dump badging outputs/GibddExamSimulator-2.0.4-android.apk | grep "package: name='app.gibddexamsimulator.mobile'.*versionCode='204'.*versionName='2.0.4'"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: signed-android-release
           path: outputs/GibddExamSimulator-2.0.4-android.apk
@@ -277,7 +277,7 @@ jobs:
           done
           python tools/scan_for_secrets.py
           python tools/scan_release_assets.py outputs
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: complete-release-2.0.4
           path: outputs/*

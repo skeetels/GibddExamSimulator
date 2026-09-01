@@ -65,7 +65,7 @@ jobs:
           dotnet test tests/GibddExamSimulator.Web.Tests/GibddExamSimulator.Web.Tests.csproj -c Release --no-restore --logger "trx;LogFileName=web.trx"
       - name: Upload failed test results
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: failed-test-results-linux
           path: '**/TestResults/*.trx'
@@ -181,7 +181,7 @@ jobs:
           python tools/verify_android_apk.py artifacts/android/GibddExamSimulator-2.0.4-android-DEV-SIGNED.apk
           "${ANDROID_HOME}/build-tools/36.0.0/apksigner" verify --verbose artifacts/android/GibddExamSimulator-2.0.4-android-DEV-SIGNED.apk
           "${ANDROID_HOME}/build-tools/36.0.0/aapt2" dump badging artifacts/android/GibddExamSimulator-2.0.4-android-DEV-SIGNED.apk | grep "package: name='app.gibddexamsimulator.mobile'"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: android-arm64-dev-signed
           path: artifacts/android/*.apk
