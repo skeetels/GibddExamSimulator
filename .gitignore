@@ -12,3 +12,4 @@ __pycache__/
 .env.*
 !.env.example
 supabase/functions/.env
+supabase/.temp/

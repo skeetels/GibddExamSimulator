@@ -1,14 +1,14 @@
 {
   "configVersion": 1,
-  "environmentId": "",
-  "repositoryOwner": "",
-  "repositoryName": "",
-  "repositoryUrl": "",
-  "releaseManifestUrl": "",
-  "pagesBaseUrl": "",
-  "syncApiBaseUrl": "",
-  "supabaseUrl": "",
-  "supabasePublishableKey": "",
-  "telegramBotUsername": "",
-  "configSha256": ""
+  "environmentId": "production",
+  "repositoryOwner": "skeetels",
+  "repositoryName": "GibddExamSimulator",
+  "repositoryUrl": "https://github.com/skeetels/GibddExamSimulator",
+  "releaseManifestUrl": "https://github.com/skeetels/GibddExamSimulator/releases/latest/download/update-manifest.json",
+  "pagesBaseUrl": "https://skeetels.github.io/GibddExamSimulator/",
+  "syncApiBaseUrl": "https://idnkrmxpclmtyfowldeg.supabase.co/functions/v1/device-api",
+  "supabaseUrl": "https://idnkrmxpclmtyfowldeg.supabase.co",
+  "supabasePublishableKey": "sb_publishable_GgLvptHQ_vO4Ky25gc_JUg_iq5pBFqW",
+  "telegramBotUsername": "akbtrainerbot",
+  "configSha256": "2D4E606ED5B4DD2B8EBC55653F232C124F9056A127946BBCADB662834FA1AC44"
 }
