@@ -104,7 +104,7 @@ jobs:
             --pages-base "${pages_base}"
           python tools/validate_deployment_config.py \
             --config build/generated/deployment-config.json --compare-clients --health
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: production-deployment-config
           path: build/generated/deployment-config.json
