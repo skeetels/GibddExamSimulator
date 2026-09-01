@@ -22,20 +22,20 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <MauiIcon Include="..\..\assets\branding\app-icon-1024.png"
-              Link="Resources\AppIcon\appicon.png"
+    <MauiIcon Include="../../assets/branding/app-icon-1024.png"
+              Link="Resources/AppIcon/appicon.png"
               Color="#0F3452"
               BaseSize="512,512" />
-    <MauiSplashScreen Include="..\..\assets\branding\logo-master-v2.png"
-                      Link="Resources\Splash\splash.png"
+    <MauiSplashScreen Include="../../assets/branding/logo-master-v2.png"
+                      Link="Resources/Splash/splash.png"
                       Color="#0F3452"
                       BaseSize="256,256" />
-    <MauiAsset Include="wwwroot\**" LogicalName="wwwroot\%(RecursiveDir)%(Filename)%(Extension)" />
-    <MauiAsset Include="Configuration\client-settings.json" LogicalName="client-settings.json" />
-    <MauiAsset Include="..\GibddExamSimulator.Web\wwwroot\css\app.css" LogicalName="wwwroot\css\app.css" />
-    <MauiAsset Include="..\..\assets\branding\logo-master-v2.png" LogicalName="wwwroot\logo.png" />
-    <MauiAsset Include="..\..\assets\question-bank\ab\**\*"
-               LogicalName="wwwroot\question-bank\ab\%(RecursiveDir)%(Filename)%(Extension)" />
+    <MauiAsset Include="wwwroot/**" LogicalName="wwwroot/%(RecursiveDir)%(Filename)%(Extension)" />
+    <MauiAsset Include="Configuration/client-settings.json" LogicalName="client-settings.json" />
+    <MauiAsset Include="../GibddExamSimulator.Web/wwwroot/css/app.css" LogicalName="wwwroot/css/app.css" />
+    <MauiAsset Include="../../assets/branding/logo-master-v2.png" LogicalName="wwwroot/logo.png" />
+    <MauiAsset Include="../../assets/question-bank/ab/**/*"
+               LogicalName="wwwroot/question-bank/ab/%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>
@@ -46,11 +46,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\GibddExamSimulator.Core\GibddExamSimulator.Core.csproj" />
-    <ProjectReference Include="..\GibddExamSimulator.Application\GibddExamSimulator.Application.csproj" />
-    <ProjectReference Include="..\GibddExamSimulator.Infrastructure\GibddExamSimulator.Infrastructure.csproj" />
-    <ProjectReference Include="..\GibddExamSimulator.Sync\GibddExamSimulator.Sync.csproj" />
-    <ProjectReference Include="..\GibddExamSimulator.Mobile.Shared\GibddExamSimulator.Mobile.Shared.csproj" />
+    <ProjectReference Include="../GibddExamSimulator.Core/GibddExamSimulator.Core.csproj" />
+    <ProjectReference Include="../GibddExamSimulator.Application/GibddExamSimulator.Application.csproj" />
+    <ProjectReference Include="../GibddExamSimulator.Infrastructure/GibddExamSimulator.Infrastructure.csproj" />
+    <ProjectReference Include="../GibddExamSimulator.Sync/GibddExamSimulator.Sync.csproj" />
+    <ProjectReference Include="../GibddExamSimulator.Mobile.Shared/GibddExamSimulator.Mobile.Shared.csproj" />
   </ItemGroup>
 
   <Target Name="ValidateProductionDeploymentConfig"

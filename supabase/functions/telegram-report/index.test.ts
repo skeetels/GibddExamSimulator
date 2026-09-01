@@ -121,3 +121,44 @@ Deno.test("desktop marker never exposes a host name", () => {
     throw new Error("Unexpected installation code.");
   }
 });
+
+Deno.test("reports ignore unanswered questions after an early exam failure", () => {
+  const session = examRow({
+    mode: "Exam",
+    outcome: "Failed",
+    answers: [
+      {
+        ticketNumber: 34,
+        questionNumber: 1,
+        thematicBlockId: 34,
+        selectedAnswer: 1,
+        isCorrect: false,
+        responseTimeMs: 12_000,
+      },
+      {
+        ticketNumber: 11,
+        questionNumber: 1,
+        thematicBlockId: 11,
+        selectedAnswer: null,
+        isCorrect: false,
+        responseTimeMs: 0,
+      },
+    ],
+    summary: {
+      questionCount: 20,
+      answeredCount: 1,
+      correctCount: 0,
+      errorCount: 2,
+      elapsedMs: 12_000,
+    },
+  });
+
+  const report = buildReport(session, [session]);
+  assertIncludes(report, "Вопросы: 1/20");
+  assertIncludes(report, "Ошибки: 1");
+  assertIncludes(report, "билет 34: ошибок 1/1");
+  if (report.includes("билет 11")) {
+    throw new Error("An unanswered question leaked into problem statistics.");
+  }
+  assertIncludes(buildStatisticsCommand([session]), "Точность ответов: 0% (0/1)");
+});

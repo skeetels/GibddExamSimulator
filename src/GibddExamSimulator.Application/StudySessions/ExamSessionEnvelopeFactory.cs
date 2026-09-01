@@ -32,10 +32,11 @@ public static class ExamSessionEnvelopeFactory
             ResponseTimeMs = Math.Max(0, (long)(state.AnswerTime ?? TimeSpan.Zero).TotalMilliseconds),
             AnsweredAtUtc = state.AnsweredAtUtc
         }).ToArray();
+        var answered = answers.Where(answer => answer.SelectedAnswer.HasValue).ToArray();
 
         var longestStreak = 0;
         var currentStreak = 0;
-        foreach (var answer in answers)
+        foreach (var answer in answered)
         {
             currentStreak = answer.IsCorrect ? currentStreak + 1 : 0;
             longestStreak = Math.Max(longestStreak, currentStreak);
@@ -63,9 +64,9 @@ public static class ExamSessionEnvelopeFactory
             Summary = new StudySessionSummary
             {
                 QuestionCount = states.Length,
-                AnsweredCount = answers.Count(answer => answer.SelectedAnswer.HasValue),
-                CorrectCount = answers.Count(answer => answer.IsCorrect),
-                ErrorCount = answers.Count(answer => !answer.IsCorrect),
+                AnsweredCount = answered.Length,
+                CorrectCount = answered.Count(answer => answer.IsCorrect),
+                ErrorCount = answered.Count(answer => !answer.IsCorrect),
                 ElapsedMs = Math.Max(0, (long)(session.MainElapsed + session.SupplementaryElapsed).TotalMilliseconds),
                 LongestCorrectStreak = longestStreak
             }

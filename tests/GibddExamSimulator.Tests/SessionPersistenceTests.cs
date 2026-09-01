@@ -138,6 +138,33 @@ public sealed class SessionPersistenceTests
     }
 
     [Fact]
+    public void LearningProfile_IgnoresUnansweredQuestionsFromEarlyTerminatedExam()
+    {
+        var answered = CreateSession(StudyDeviceKind.WindowsDesktop, isCorrect: false);
+        var unanswered = answered.Answers[0] with
+        {
+            SequenceNumber = 2,
+            QuestionId = 2,
+            QuestionNumber = 2,
+            SelectedAnswer = null,
+            IsCorrect = false,
+            ResponseTimeMs = 0,
+            AnsweredAtUtc = null
+        };
+        var session = (answered with
+        {
+            OrderedQuestionIds = [1, 2],
+            Answers = [answered.Answers[0], unanswered],
+            PayloadSha256 = string.Empty
+        }).WithComputedHash();
+
+        var profile = new LearningProfileBuilder().Build([session], session.CompletedAtUtc.AddMinutes(1));
+
+        Assert.Equal(1, profile.GetQuestion(1)!.ExposureCount);
+        Assert.Null(profile.GetQuestion(2));
+    }
+
+    [Fact]
     public async Task CanonicalQuestionBank_HasOnlyAbAndValidJpegs()
     {
         var repository = FindRepositoryRoot();

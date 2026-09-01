@@ -929,7 +929,7 @@ public sealed class MainViewModel : ObservableObject
         var passed = exams.Count(session => session.Outcome == StudyOutcome.Passed);
         var errorTickets = exams
             .SelectMany(session => session.Answers)
-            .Where(answer => !answer.IsCorrect)
+            .Where(answer => answer.SelectedAnswer.HasValue && !answer.IsCorrect)
             .GroupBy(answer => answer.TicketNumber)
             .Select(group => new { Ticket = group.Key, Errors = group.Count() })
             .OrderByDescending(item => item.Errors)

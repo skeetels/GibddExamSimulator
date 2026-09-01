@@ -565,6 +565,7 @@ public sealed class DesktopStudyStore : ILocalStudyStore, ILegacyStudyMigration,
             }
             if (answers.Count == 0)
                 continue;
+            var answered = answers.Where(answer => answer.SelectedAnswer.HasValue).ToArray();
             sessions.Add(new StudySessionEnvelope
             {
                 SessionId = attempt.SessionId,
@@ -587,9 +588,9 @@ public sealed class DesktopStudyStore : ILocalStudyStore, ILegacyStudyMigration,
                 Summary = new StudySessionSummary
                 {
                     QuestionCount = answers.Count,
-                    AnsweredCount = answers.Count(answer => answer.SelectedAnswer.HasValue),
-                    CorrectCount = answers.Count(answer => answer.IsCorrect),
-                    ErrorCount = answers.Count(answer => !answer.IsCorrect),
+                    AnsweredCount = answered.Length,
+                    CorrectCount = answered.Count(answer => answer.IsCorrect),
+                    ErrorCount = answered.Count(answer => !answer.IsCorrect),
                     ElapsedMs = Math.Max(0, attempt.ElapsedSeconds * 1000),
                     LongestCorrectStreak = LongestCorrectStreak(answers)
                 }
@@ -795,7 +796,7 @@ public sealed class DesktopStudyStore : ILocalStudyStore, ILegacyStudyMigration,
     {
         var longest = 0;
         var current = 0;
-        foreach (var answer in answers)
+        foreach (var answer in answers.Where(answer => answer.SelectedAnswer.HasValue))
         {
             current = answer.IsCorrect ? current + 1 : 0;
             longest = Math.Max(longest, current);

@@ -8,6 +8,7 @@ type AnswerPayload = {
   ticketNumber?: number;
   questionNumber?: number;
   thematicBlockId?: number;
+  selectedAnswer?: number | null;
   isCorrect?: boolean;
   responseTimeMs?: number;
 };
@@ -161,6 +162,12 @@ export function installationCode(payload: SessionPayload): string {
   return compact.slice(0, 6) || "UNKNOWN";
 }
 
+function isAnswered(answer: AnswerPayload): boolean {
+  // Schema v1 serializes an unanswered question as an explicit null. Treat an
+  // omitted value as answered for compatibility with early imported payloads.
+  return answer.selectedAnswer !== null;
+}
+
 export function topProblemLines(
   allSessions: StudySessionRow[],
   keySelector: (answer: AnswerPayload) => number | undefined,
@@ -172,6 +179,7 @@ export function topProblemLines(
   >();
   for (const row of allSessions) {
     for (const answer of row.payload.answers ?? []) {
+      if (!isAnswered(answer)) continue;
       const key = keySelector(answer);
       if (!Number.isInteger(key)) continue;
       const current = aggregate.get(key!) ??
@@ -206,7 +214,8 @@ export function topProblemLines(
 export function buildStatisticsCommand(allSessions: StudySessionRow[]): string {
   const exams = allSessions.filter((row) => row.payload.mode === "Exam");
   const passed = exams.filter((row) => row.payload.outcome === "Passed").length;
-  const answers = exams.flatMap((row) => row.payload.answers ?? []);
+  const answers = exams.flatMap((row) => row.payload.answers ?? [])
+    .filter(isAnswered);
   const correct = answers.filter((answer) => answer.isCorrect).length;
   const accuracy = answers.length === 0
     ? 0
@@ -262,7 +271,8 @@ export function buildReport(
   allSessions: StudySessionRow[],
 ): string {
   const payload = current.payload;
-  const answers = payload.answers ?? [];
+  const allAnswers = payload.answers ?? [];
+  const answers = allAnswers.filter(isAnswered);
   const errors = answers.filter((answer) => !answer.isCorrect);
   const summary = payload.summary ?? {};
   const averageMs = answers.length === 0 ? 0 : answers.reduce(
@@ -285,14 +295,9 @@ export function buildReport(
     `Результат: ${outcome}`,
     `Устройство: ${deviceLabel(payload)} · ${installationCode(payload)}`,
     `Завершён: ${completed} (Екатеринбург)`,
-    `Вопросы: ${summary.answeredCount ?? answers.length}/${
-      summary.questionCount ?? answers.length
-    }`,
-    `Правильно: ${
-      summary.correctCount ??
-        answers.filter((answer) => answer.isCorrect).length
-    }`,
-    `Ошибки: ${summary.errorCount ?? errors.length}`,
+    `Вопросы: ${answers.length}/${summary.questionCount ?? allAnswers.length}`,
+    `Правильно: ${answers.filter((answer) => answer.isCorrect).length}`,
+    `Ошибки: ${errors.length}`,
     `Общее время: ${durationText(summary.elapsedMs ?? 0)}`,
     `Среднее время ответа: ${durationText(averageMs)}`,
     "",

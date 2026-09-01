@@ -190,7 +190,11 @@ async function currentMembership(
   context: AuthContext,
   deviceId?: string,
 ): Promise<{ profile_id: string; device_id: string } | null> {
-  let query = context.admin
+  // Membership reads should run with the caller JWT. The database policies are
+  // deliberately scoped to the authenticated profile and this also keeps the
+  // request working when a project uses the newer secret-key format for the
+  // administrative client.
+  let query = context.userClient
     .from("device_memberships")
     .select("profile_id,device_id")
     .eq("auth_user_id", context.userId)
@@ -283,7 +287,7 @@ async function pairingStatus(request: Request): Promise<Response> {
   }
   let linkedDeviceName: string | null = null;
   if (status === "completed" && row.consumed_by_auth_user_id) {
-    const membership = await context.admin
+    const membership = await context.userClient
       .from("device_memberships")
       .select("device_name")
       .eq("profile_id", row.linked_profile_id)
@@ -401,13 +405,13 @@ async function syncPush(request: Request): Promise<Response> {
     payload: session,
     payload_sha256: session.payloadSha256.toUpperCase(),
   };
-  const inserted = await context.admin
+  const inserted = await context.userClient
     .from("study_sessions")
     .insert(row)
     .select("server_seq")
     .maybeSingle();
   if (inserted.error?.code === "23505") {
-    const existing = await context.admin
+    const existing = await context.userClient
       .from("study_sessions")
       .select("payload_sha256")
       .eq("session_id", session.sessionId)
@@ -463,7 +467,7 @@ async function syncPull(request: Request): Promise<Response> {
       Number.parseInt(url.searchParams.get("limit") ?? "100", 10) || 100,
     ),
   );
-  const result = await context.admin
+  const result = await context.userClient
     .from("study_sessions")
     .select("server_seq,payload")
     .eq("profile_id", membership.profile_id)
@@ -482,7 +486,7 @@ async function listDevices(request: Request): Promise<Response> {
   const context = await authorize(request);
   const membership = await currentMembership(context);
   if (!membership) return responseJson(403, { error: "device_not_linked" });
-  const result = await context.admin
+  const result = await context.userClient
     .from("device_memberships")
     .select(
       "device_id,platform,device_name,created_at,last_seen_at,auth_user_id",

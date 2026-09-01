@@ -15,10 +15,12 @@ public sealed class LearningProfileBuilder
             .ToArray();
 
         var answersByQuestion = sessions
-            .SelectMany(session => session.Answers.Select(answer => new WeightedAnswer(
-                session.Mode,
-                session.CompletedAtUtc,
-                answer)))
+            .SelectMany(session => session.Answers
+                .Where(answer => answer.SelectedAnswer.HasValue)
+                .Select(answer => new WeightedAnswer(
+                    session.Mode,
+                    session.CompletedAtUtc,
+                    answer)))
             .GroupBy(item => item.Answer.QuestionId)
             .ToDictionary(group => group.Key, group => group.ToArray());
         var aggregatesByQuestion = sessions

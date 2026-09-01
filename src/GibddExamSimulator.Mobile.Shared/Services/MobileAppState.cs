@@ -696,7 +696,9 @@ public sealed class MobileAppState(
         var sessions = await store.GetSessionsAsync(UserId);
         SessionCount = sessions.Count;
         PassedExamCount = sessions.Count(session => session.Mode == StudyMode.Exam && session.Outcome == StudyOutcome.Passed);
-        var answers = sessions.SelectMany(session => session.Answers).ToArray();
+        var answers = sessions.SelectMany(session => session.Answers)
+            .Where(answer => answer.SelectedAnswer.HasValue)
+            .ToArray();
         AccuracyPercent = answers.Length == 0 ? 0 : answers.Count(answer => answer.IsCorrect) * 100.0 / answers.Length;
         var weak = answers.Where(answer => !answer.IsCorrect)
             .GroupBy(answer => answer.TicketNumber)

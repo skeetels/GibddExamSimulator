@@ -1,3 +1,4 @@
+using GibddExamSimulator.Application.StudySessions;
 using GibddExamSimulator.ExamEngine;
 using GibddExamSimulator.Models;
 using Engine = GibddExamSimulator.ExamEngine.ExamEngine;
@@ -224,6 +225,27 @@ public sealed class ExamEngineTests
         Assert.Equal(2, result.MainErrorCount);
         Assert.Equal(2, result.IncorrectAnswers.Count);
         Assert.Equal(18, engine.Session!.MainQuestions.Count(x => x.IsCorrect is null));
+    }
+
+    [Fact]
+    public void ImmediateFailure_EnvelopeSummaryCountsOnlyConfirmedAnswers()
+    {
+        var (engine, _, _) = CreateEngine();
+        AnswerAt(engine, 0, correct: false);
+        AnswerAt(engine, 1, correct: false);
+
+        var envelope = ExamSessionEnvelopeFactory.Create(
+            engine.Session!,
+            Guid.NewGuid(),
+            StudyDeviceKind.WindowsDesktop,
+            "test-ab",
+            new string('A', 64),
+            "test-rules");
+
+        Assert.Equal(20, envelope.Summary.QuestionCount);
+        Assert.Equal(2, envelope.Summary.AnsweredCount);
+        Assert.Equal(2, envelope.Summary.ErrorCount);
+        Assert.Equal(18, envelope.Answers.Count(answer => !answer.SelectedAnswer.HasValue));
     }
 
     [Fact]
