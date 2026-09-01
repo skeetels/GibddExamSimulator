@@ -42,7 +42,7 @@ jobs:
           payload = json.loads(path.read_text(encoding="utf-8"))
           safe = {
               key: payload[key]
-              for key in ("ok", "sent", "pending", "error", "databaseCode", "detail")
+              for key in ("ok", "sent", "pending", "errors", "error", "databaseCode", "detail")
               if key in payload
           }
           print(json.dumps(safe, ensure_ascii=False))

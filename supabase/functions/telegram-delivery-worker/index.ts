@@ -202,7 +202,22 @@ export async function handleTelegramDeliveryWorker(
     if (result === "sent" || result === "duplicate") sent++;
     else pending++;
   }
-  return Response.json({ ok: true, sent, pending }, {
+  const failedRows = await admin.from("telegram_report_deliveries")
+    .select("last_error")
+    .eq("status", "failed")
+    .not("last_error", "is", null)
+    .order("updated_at", { ascending: false })
+    .limit(10);
+  const errors = failedRows.error
+    ? ["failed_to_read_delivery_errors"]
+    : [...new Set(
+      (failedRows.data ?? [])
+        .map((row: { last_error: string | null }) =>
+          row.last_error?.slice(0, 500)
+        )
+        .filter((value: string | undefined): value is string => Boolean(value)),
+    )];
+  return Response.json({ ok: true, sent, pending, errors }, {
     headers: { "Cache-Control": "no-store" },
   });
 }
