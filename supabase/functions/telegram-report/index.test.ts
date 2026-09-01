@@ -160,5 +160,8 @@ Deno.test("reports ignore unanswered questions after an early exam failure", () 
   if (report.includes("билет 11")) {
     throw new Error("An unanswered question leaked into problem statistics.");
   }
-  assertIncludes(buildStatisticsCommand([session]), "Точность ответов: 0% (0/1)");
+  assertIncludes(
+    buildStatisticsCommand([session]),
+    "Точность ответов: 0% (0/1)",
+  );
 });
