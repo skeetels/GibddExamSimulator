@@ -1,0 +1,7 @@
+# The question-bank manifest hashes the exact JSON bytes. Keep LF on every
+# platform so Windows CI cannot silently rewrite the payload to CRLF.
+assets/question-bank/ab/*.json text eol=lf
+
+# Binary question and brand assets must never pass through text conversion.
+assets/question-bank/ab/images/*.jpg binary
+assets/branding/* binary

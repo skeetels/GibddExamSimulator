@@ -11,7 +11,7 @@
     <PublishSingleFile>false</PublishSingleFile>
     <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <Version>2.0.2</Version>
+    <Version>2.0.3</Version>
     <Product>Тренажёр АРМ кандидата в водители</Product>
     <Company>Неофициальный учебный проект</Company>
     <DeploymentPython Condition="'$(DeploymentPython)' == ''">python</DeploymentPython>

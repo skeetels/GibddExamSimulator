@@ -8,15 +8,15 @@ self-contained publish under artifacts/, then passes that folder to ISCC. The re
 setup executable is written to the workspace outputs/ directory by default.
 
 .EXAMPLE
-.\Build-Installer.ps1 -AppVersion 2.0.2
+.\Build-Installer.ps1 -AppVersion 2.0.3
 
 .EXAMPLE
-.\Build-Installer.ps1 -SkipPublish -PublishDirectory C:\staging\GibddExamSimulator -AppVersion 2.0.2
+.\Build-Installer.ps1 -SkipPublish -PublishDirectory C:\staging\GibddExamSimulator -AppVersion 2.0.3
 #>
 [CmdletBinding()]
 param(
     [ValidatePattern('^\d+\.\d+\.\d+(\.\d+)?$')]
-    [string] $AppVersion = '2.0.2',
+    [string] $AppVersion = '2.0.3',
 
     [ValidateSet('Release', 'Debug')]
     [string] $Configuration = 'Release',
@@ -114,6 +114,26 @@ if (-not $SkipPublish) {
 if (-not (Test-Path -LiteralPath $appExecutable -PathType Leaf)) {
     throw "Published application executable was not found: $appExecutable"
 }
+
+# The bank manifest contains a digest of the exact JSON bytes. This check is
+# deliberately performed on the staged publish directory, after MSBuild has
+# copied the files, so an installer can never be produced from a payload whose
+# line endings or contents were changed during a Windows checkout/build.
+$questionBankRoot = Join-Path $PublishDirectory 'QuestionBank'
+$questionBankManifestPath = Join-Path $questionBankRoot 'bank-manifest.json'
+$questionBankQuestionsPath = Join-Path $questionBankRoot 'official-questions.json'
+if (-not (Test-Path -LiteralPath $questionBankManifestPath -PathType Leaf) -or
+    -not (Test-Path -LiteralPath $questionBankQuestionsPath -PathType Leaf)) {
+    throw "Published AB question bank is incomplete: $questionBankRoot"
+}
+$questionBankManifest = Get-Content -Raw -LiteralPath $questionBankManifestPath | ConvertFrom-Json
+$expectedQuestionBankHash = [string] $questionBankManifest.bankSha256
+$actualQuestionBankHash = (Get-FileHash -LiteralPath $questionBankQuestionsPath -Algorithm SHA256).Hash
+if ([string]::IsNullOrWhiteSpace($expectedQuestionBankHash) -or
+    -not [string]::Equals($expectedQuestionBankHash, $actualQuestionBankHash, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Published AB question-bank SHA-256 mismatch. Expected '$expectedQuestionBankHash', actual '$actualQuestionBankHash'."
+}
+Write-Output "Published AB question bank: SHA256 $actualQuestionBankHash"
 
 New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
 

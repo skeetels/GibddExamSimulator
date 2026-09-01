@@ -111,6 +111,38 @@ public sealed class SessionPersistenceTests
     }
 
     [Fact]
+    public async Task LegacyMigrationLedger_FollowsSessionsWhenAnonymousScopeIsLinked()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "gibdd-v2-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var database = Path.Combine(root, "legacy.db");
+            await CreateLegacyDatabaseAsync(database, includeTrainingAggregate: true);
+            var store = new DesktopStudyStore(database);
+            await store.InitializeAsync();
+            var deviceScope = Guid.NewGuid();
+            var linkedUserScope = Guid.NewGuid();
+            var deviceId = Guid.NewGuid();
+
+            var first = await store.MigrateLegacyAsync(
+                deviceScope, deviceId, "test-ab", new string('A', 64), "test-rules");
+            await store.MergeUserScopeAsync(deviceScope, linkedUserScope);
+            var afterLink = await store.MigrateLegacyAsync(
+                linkedUserScope, deviceId, "test-ab", new string('A', 64), "test-rules");
+
+            Assert.False(first.AlreadyApplied);
+            Assert.True(afterLink.AlreadyApplied);
+            Assert.Empty(await store.GetSessionsAsync(deviceScope));
+            Assert.Single(await store.GetSessionsAsync(linkedUserScope));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void LearningProfile_IsOrderIndependentAndDeduplicatesIdenticalSession()
     {
         var first = CreateSession(StudyDeviceKind.WindowsDesktop, isCorrect: false);

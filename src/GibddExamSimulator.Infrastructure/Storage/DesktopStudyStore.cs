@@ -173,11 +173,16 @@ public sealed class DesktopStudyStore : ILocalStudyStore, ILegacyStudyMigration,
             INSERT OR IGNORE INTO learning_profile_cache(user_id, calculated_at_utc, payload_json)
             SELECT $target, calculated_at_utc, payload_json FROM learning_profile_cache WHERE user_id=$source;
 
+            INSERT OR IGNORE INTO v2_migration_ledger(user_id, migration_key, applied_at_utc)
+            SELECT $target, migration_key, applied_at_utc
+              FROM v2_migration_ledger WHERE user_id=$source;
+
             DELETE FROM study_outbox WHERE user_id=$source;
             DELETE FROM study_sessions_local WHERE user_id=$source;
             DELETE FROM active_study_drafts WHERE user_id=$source;
             DELETE FROM learning_profile_cache WHERE user_id=$source;
             DELETE FROM study_sync_state WHERE user_id=$source;
+            DELETE FROM v2_migration_ledger WHERE user_id=$source;
             """;
         await command.ExecuteNonQueryAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);

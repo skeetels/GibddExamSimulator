@@ -15,7 +15,7 @@ public sealed class PwaMobilePlatform(IJSRuntime javascript) : IMobilePlatform
 {
     public StudyDeviceKind DeviceKind => StudyDeviceKind.MobilePwa;
     public string DeviceLabel => "Телефон / PWA";
-    public string AppVersion => "2.0.2";
+    public string AppVersion => "2.0.3";
     public bool SupportsInstallableUpdates => false;
     public async Task OpenUriAsync(Uri uri) =>
         await javascript.InvokeVoidAsync("open", uri.AbsoluteUri, "_blank", "noopener,noreferrer");

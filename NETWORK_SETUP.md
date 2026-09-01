@@ -16,10 +16,10 @@
 6. проверяет public `/health`;
 7. сохраняет безопасный deployment config artifact.
 
-`pages.yml` встраивает тот же contract и публикует PWA. `release.yml` на `v2.0.2` требует совместимый health, постоянную APK-подпись, production config и шесть E2E screenshots; затем проверяет файлы, создаёт Release и скачивает каждый asset обратно.
+`pages.yml` встраивает тот же contract и публикует PWA. `release.yml` на `v2.0.3` требует совместимый health, постоянную APK-подпись, production config и шесть E2E screenshots; затем проверяет файлы, создаёт Release и скачивает каждый asset обратно.
 
 ## Проверка перед tag
 
-Все jobs `CI`, `Deploy backend` и `Deploy PWA to GitHub Pages` должны быть зелёными. Запишите фактические URLs/run IDs/commit в `docs/GITHUB_DEPLOYMENT_STATE.md`, выполните clean Windows + Android pairing и сохраните evidence. Только затем создавайте tag `v2.0.2`.
+Все jobs `CI`, `Deploy backend` и `Deploy PWA to GitHub Pages` должны быть зелёными. Запишите фактические URLs/run IDs/commit в `docs/GITHUB_DEPLOYMENT_STATE.md`, выполните clean Windows + Android pairing и сохраните evidence. Только затем создавайте tag `v2.0.3`.
 
 Нельзя копировать access token, database password, bot token, webhook secret, keystore или signing password в командную строку, source, Variables, QR, клиентский JSON или отчёт.

@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string] $Version = '2.0.2',
+    [string] $Version = '2.0.3',
     [Parameter(Mandatory)]
     [string] $PwaWwwRoot,
     [string] $OutputDirectory,
